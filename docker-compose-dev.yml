@@ -1,0 +1,36 @@
+name: weathercock-dev
+
+services:
+  nui:
+    image: ${NUI_IMAGE}:${NUI_TAG}
+    container_name: weathercock-dev-nui
+    restart: always
+    depends_on:
+      - nats
+    ports:
+      - "${NUI_PORT}:31311"
+    volumes:
+      - nui_data:/db
+  pgadmin:
+    image: ${PGADMIN_IMAGE}:${PGADMIN_TAG}
+    container_name: weathercock-dev-pgadmin
+    restart: always
+    depends_on:
+      - postgres
+    secrets:
+      - pgadmin
+    ports:
+      - "${PGADMIN_PORT}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin
+
+volumes:
+  nui_data:
+  pgadmin_data:
+
+secrets:
+  pgadmin:
+    file: ${PGADMIN_DEFAULT_PASSWORD_FILE}

@@ -1,0 +1,74 @@
+name: weathercock
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}:${POSTGRES_TAG}
+    container_name: weathercock-postgres
+    restart: always
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    secrets:
+      - postgres_admin
+    volumes:
+      - ./configs/postgres:/etc/postgresql/config.d
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin
+    command: ["-c", "config_file=/etc/postgresql/config.d/postgres.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  valkey:
+    image: ${VALKEY_IMAGE}:${VALKEY_TAG}
+    container_name: weathercock-valkey
+    restart: always
+    volumes:
+      - ./configs/valkey:/usr/local/etc/valkey
+      - valkey_data:/data/valkey/snapshots
+    ports:
+      - "${VALKEY_PORT}:6379"
+    secrets:
+      - valkey_acl
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  nats:
+    image: ${NATS_IMAGE}:${NATS_TAG}
+    container_name: weathercock-nats
+    restart: always
+    volumes:
+      - ./configs/nats:/etc/nats
+      - nats_data:/data/nats
+    ports:
+      - "${NATS_CLI_PORT}:4222"
+      - "${NATS_HTTP_PORT}:8222"
+    command:
+      [
+        "-js",
+        "-sd",
+        "/data/nats/jetsteam",
+        "-c",
+        "/etc/nats/nats-server.conf",
+        --user,
+        "${NATS_USER}",
+        --pass,
+        "${NATS_PASS}",
+      ]
+
+volumes:
+  postgres_data:
+  nats_data:
+  valkey_data:
+
+secrets:
+  postgres_admin:
+    file: ${POSTGRES_PASSWORD_FILE}
+  valkey_acl:
+    file: ${VALKEY_ACL_FILE}

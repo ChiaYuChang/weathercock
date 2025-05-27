@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Define custom properties using :root selector */
+:root {
+    --color-primary: #4a90e2;
+}

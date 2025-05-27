@@ -1,12 +1,39 @@
 # https://taskfile.dev
 
-version: '3'
+version: "3"
 
-vars:
-  GREETING: Hello, World!
+env:
+  CSS_SRC: "src/css/style.css"
+  CSS_DST: "static/css/style.css"
+
+dotenv: [".env"]
 
 tasks:
-  default:
+  docker-compose-up:
+    desc: Start the Docker containers for development (including NUI and pgAdmin)
     cmds:
-      - echo "{{.GREETING}}"
-    silent: true
+      - docker-compose -f docker-compose.yml -f docker-compose-dev.yml up -d
+  docker-compose-down:
+    desc: Stop the Docker containers for development 
+    cmds:
+      - docker-compose -f docker-compose.yml -f docker-compose-dev.yml down
+  migrate-up:
+    desc: Run database migrations
+    cmds:
+      - bash ./scripts/migrate.sh up
+  migrate-down:
+    desc: Rollback database migrations
+    cmds:
+      - bash ./scripts/migrate.sh down
+  watch-css:
+    desc: Watch for changes in style.css and compile them
+    cmds:
+      - npx @tailwindcss/cli -i "$CSS_SRC" -o "$CSS_DST" --watch
+  clean-css:
+    desc: Clean the CSS file
+    cmds:
+      - rm -f "$CSS_DST"
+  build-css:
+    desc: Build the CSS file
+    cmds:
+      - npx @tailwindcss/cli -i "$CSS_SRC" -o "$CSS_DST" --minify

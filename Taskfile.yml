@@ -5,6 +5,8 @@ version: "3"
 env:
   CSS_SRC: "src/css/style.css"
   CSS_DST: "static/css/style.css"
+  PROTOBUF_SRC: "proto"
+  PROTOBUF_DST: "."
 
 dotenv: [".env"]
 
@@ -17,6 +19,14 @@ tasks:
     desc: Stop the Docker containers for development 
     cmds:
       - docker-compose -f docker-compose.yml -f docker-compose-dev.yml down
+  cmd-run-api:
+    desc: Run the API server
+    cmds:
+      - go run ./cmd/api/main.go
+  cmd-run-worker:
+    desc: Run the worker server
+    cmds:
+      - go run ./cmd/worker/main.go
   migrate-up:
     desc: Run database migrations
     cmds:
@@ -37,3 +47,7 @@ tasks:
     desc: Build the CSS file
     cmds:
       - npx @tailwindcss/cli -i "$CSS_SRC" -o "$CSS_DST" --minify
+  build-protobuf:
+    desc: Generate Go code from protobuf definitions
+    cmds:
+      - protoc -I="$PROTOBUF_SRC" --go_out="$PROTOBUF_DST" $PROTOBUF_SRC/*.proto 

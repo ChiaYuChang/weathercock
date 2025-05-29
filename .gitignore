@@ -7,8 +7,15 @@ backup/bin/
 
 # Node.js
 node_modules/
+
+# resources
+static/fonts/
+
+# compiled files
 static/css/style.css
 static/js/bundle.js
+pkgs/pb
+
 
 # IDEs
 .vscode/

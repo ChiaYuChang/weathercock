@@ -1,6 +1,73 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
-/* Define custom properties using :root selector */
-:root {
-    --color-primary: #4a90e2;
+@font-face {
+    font-family: 'GenKiGothic2TW';
+    src: url(/fonts/GenKiGothic2TW/GenKiGothic2TW-B.otf) format('opentype');
+    font-weight: bold;
+    font-style: normal;
 }
+
+@font-face {
+    font-family: 'GenKiGothic2TW';
+    src: url(/fonts/GenKiGothic2TW/GenKiGothic2TW-R.otf) format('opentype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'GenKiGothic2TW';
+    src: url(/fonts/GenKiGothic2TW/GenKiGothic2TW-L.otf) format('opentype');
+    font-weight: 300;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'GenWanMin2TW';
+    src: url(/fonts/GenWanMin2TW/GenWanMin2TW-R.otf) format('opentype');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'GenWanMin2TW';
+    src: url(/fonts/GenWanMin2TW/GenWanMin2TW-SB.otf) format('opentype');
+    font-weight: 600;
+    font-style: normal;
+}
+
+@theme {
+    --font-serif: 'GenWanMin2TW', 'Inter', sans-serif;
+    --font-sans: 'GenKiGothic2TW', 'Inter', sans-serif;
+}
+
+h2 {
+    font-family: var(--font-sans);
+    font-weight: bold;
+    @apply text-2xl text-slate-800 md:text-3xl;
+}
+
+h3 {
+    font-family: var(--font-sans);
+    @apply text-lg font-semibold text-slate-700;
+}
+
+a {
+    @apply hover:text-indigo-600;
+}
+
+.icon {
+    @apply h-5 w-5 text-slate-400;
+}
+
+.content {
+    @apply max-w-none text-lg leading-relaxed text-slate-700;
+}
+
+.content > p {
+    @apply mb-4;
+}
+
+.keyword {
+    @apply rounded-full bg-indigo-100 py-1.5 pr-2 pl-4 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-200;
+}
+

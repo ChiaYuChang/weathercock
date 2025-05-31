@@ -7,8 +7,12 @@ import (
 	"log"
 	"math/rand/v2"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
+	"github.com/ChiaYuChang/weathercock/internal/global"
 	"github.com/ChiaYuChang/weathercock/pkgs/pb"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -37,13 +41,30 @@ func main() {
 		}
 	}()
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	sub, err := nc.Subscribe(fmt.Sprintf("%s.>", global.NATSLogSubject), func(msg *nats.Msg) {
+		level := msg.Subject[len(global.NATSLogSubject)+1:] // Extract level from subject
+		log.Printf("[%s] Received log message: %s", strings.ToUpper(level), string(msg.Data))
+	})
+	if err != nil {
+		log.Fatalf("Failed to subscribe to log subject: %v", err)
+		os.Exit(1)
+	}
+	log.Println("Press Ctrl+C to exit...")
+	<-c
+	if err := sub.Unsubscribe(); err != nil {
+		log.Fatalf("Failed to unsubscribe from log subject: %v", err)
+		os.Exit(1)
+	}
+	log.Printf("Unsubscribed from %s, exiting...\n", sub.Subject)
 	// SimpleTextMessage demonstrates a simple text message exchange using NATS.
 	// SimpleTextMessage(nc)
 
 	// ProtobufMessage demonstrates a protobuf message exchange using NATS.
 	// ProtobufMessage(nc)
 
-	LimitsBasedStreaming(nc)
+	// LimitsBasedStreaming(nc)
 }
 
 func PullConsumers(nc *nats.Conn) {

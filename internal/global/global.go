@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -25,8 +26,23 @@ func Validate() *validator.Validate {
 }
 
 func Initialization() {
+	nc, err := nats.Connect(
+		nats.DefaultURL,
+		nats.UserInfo(
+			os.Getenv("NATS_USER"),
+			os.Getenv("NATS_PASS"),
+		),
+	)
+	if err != nil {
+		panic("Failed to connect to NATS server: " + err.Error())
+	}
+
 	Logger = log.Output(zerolog.MultiLevelWriter(
 		zerolog.ConsoleWriter{Out: os.Stdout},
+		&NatsLogWriter{
+			Conn:    nc,
+			Subject: NATSLogSubject,
+		},
 	))
 
 	// initialize validator

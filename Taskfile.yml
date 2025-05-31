@@ -19,22 +19,33 @@ tasks:
     desc: Stop the Docker containers for development 
     cmds:
       - docker-compose -f docker-compose.yml -f docker-compose-dev.yml down
-  cmd-run-api:
+  go-run-api:
     desc: Run the API server
     cmds:
       - go run ./cmd/api/main.go
-  cmd-run-worker:
+  go-run-worker:
     desc: Run the worker server
     cmds:
       - go run ./cmd/worker/main.go
+  go-run-scraper:
+    desc: Run the scraper
+    cmds:
+      - go run ./cmd/scraper/main.go
   migrate-up:
     desc: Run database migrations
     cmds:
       - bash ./scripts/migrate.sh up
   migrate-down:
-    desc: Rollback database migrations
+    desc: Rollback database migrations  
     cmds:
       - bash ./scripts/migrate.sh down
+  migrate-force:
+    desc: Force database migrations to given version
+    requires:
+      vars:
+        - version
+    cmds:
+      - bash ./scripts/migrate.sh force {{.version}}
   watch-css:
     desc: Watch for changes in style.css and compile them
     cmds:

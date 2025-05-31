@@ -2,8 +2,14 @@ package scrapers
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"regexp"
 	"runtime"
 	"time"
+
+	"github.com/ChiaYuChang/weathercock/internal/global"
+	"github.com/gocolly/colly/v2"
 )
 
 const (
@@ -37,24 +43,27 @@ var DefaultHeaders = map[string]string{
 
 var DefaultTimeZone, _ = time.LoadLocation("Asia/Taipei")
 
-type Breaks struct {
-	ShortBreakMinTime     time.Duration // Minimum time for a short break
-	ShortBreakRandomRange time.Duration // Random range added to short break
-	LongBreakAfterNPages  int           // Number of pages after which to take a long break
-	LongBreakMinTime      time.Duration // Minimum time for a long break
-	LongBreakRandomRange  time.Duration // Random range added to long break
+type Delay struct {
+	MinDelayTime time.Duration // Minimum time for a short break
+	DelayTimeRng time.Duration // Random range added to short break
 }
 
-var DefaultBreaks = Breaks{
-	ShortBreakMinTime:     3 * time.Second,
-	ShortBreakRandomRange: 2 * time.Second,
-	LongBreakAfterNPages:  10,
-	LongBreakMinTime:      5 * time.Minute,
-	LongBreakRandomRange:  60 * time.Second,
+var DefaultBreaks = Delay{
+	MinDelayTime: 5 * time.Second,
+	DelayTimeRng: 30 * time.Second,
 }
 
 // DefaultParallelism is the number of concurrent requests to make.
 var DefaultParallelism = runtime.NumCPU() - 1
+
+type SiteSelectors struct {
+	TitleSelector            string            `json:"title_selector"`
+	ContentContainerSelector string            `json:"content_container_selector"`
+	ContentSelector          map[string]string `json:"content_selector"`
+	HrefSelector             string            `json:"href_selector"`
+	DateTimtSelector         map[string]string `json:"date_time_selector"`
+	NextPageTokenSelector    string            `json:"next_page_token_selector,omitempty"`
+}
 
 type Content struct {
 	Title    string    `json:"title"`
@@ -72,4 +81,63 @@ func (c *Content) MarshalJSON() ([]byte, error) {
 		Date:  c.Date.Format(time.DateOnly),
 		Alias: (*Alias)(c),
 	})
+}
+
+type ScrapingResult struct {
+	Content Content `json:"content"`
+	Error   error   `json:"error,omitempty"`
+}
+
+func newCollector(
+	domain string, maxDepth int, async bool,
+	filter []*regexp.Regexp, breaks Delay,
+	headers map[string]string) *colly.Collector {
+	c := colly.NewCollector(
+		colly.AllowedDomains(domain),
+		colly.URLFilters(filter...),
+		colly.Async(async),
+		colly.MaxDepth(maxDepth),
+	)
+
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  fmt.Sprintf("*%s", domain),
+		Parallelism: DefaultParallelism,
+		Delay:       breaks.MinDelayTime,
+		RandomDelay: breaks.DelayTimeRng,
+	})
+
+	c.OnRequest(func(r *colly.Request) {
+		for key, value := range headers {
+			r.Headers.Set(key, value)
+		}
+
+		global.Logger.Info().
+			Str("URL", r.URL.String()).
+			Msg("Request made")
+	})
+
+	c.OnError(func(r *colly.Response, err error) {
+		global.Logger.Error().
+			Err(err).
+			Int("status_code", r.StatusCode).
+			Str("link", r.Request.URL.String()).
+			Msg("Request failed")
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		global.Logger.Debug().
+			Str("URL", r.Request.URL.String()).
+			Int("status_code", r.StatusCode).
+			Msg("Response received")
+
+		if r.StatusCode != http.StatusOK {
+			global.Logger.Error().
+				Str("URL", r.Request.URL.String()).
+				Int("status_code", r.StatusCode).
+				Msg("request failed with non-200 status code")
+			return
+		}
+	})
+
+	return c
 }

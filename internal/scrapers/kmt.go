@@ -1,8 +1,8 @@
-// Package kmt provides scraping utilities for the KMT official website.
 package scrapers
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -16,64 +16,59 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
-const KmtURLTmpl = "https://www.kmt.org.tw/search/label/新聞稿?updated-max=%s&max-results=10#PageNo=%d"
+const KmtURLTmpl = "https://www.kmt.org.tw/search/label/%%E6%%96%%B0%%E8%%81%%9E%%E7%%A8%%BF?updated-max=%s&max-results=10#PageNo=%d"
 
+// SiteSelectors defines the selectors used to extract content from the KMT official
+var KmtSelectors = SiteSelectors{
+	TitleSelector:            "#div1 h3",
+	ContentContainerSelector: "body #recentwork #Blog1",
+	ContentSelector: map[string]string{
+		"default":  "#div1 div.post-body p",
+		"fallback": "#div1 div.post-body description div",
+	},
+	HrefSelector: ".date-posts h3 a",
+	DateTimtSelector: map[string]string{
+		"default": "#div1 div.post-footer-line i.pdt abbr.published",
+	},
+	NextPageTokenSelector: ".date-posts i.pdt abbr.published[itemprop='datePublished']",
+}
+
+// KmtTimeFormat defines the date format used in KMT press releases.
+var KmtTimeFormat = time.RFC3339
+
+// KmtSeedUrls contains the initial URLs to start scraping from the KMT official site.
 var KmtSeedUrls = []string{
 	fmt.Sprintf(KmtURLTmpl, url.QueryEscape(time.Now().Format("2006-01-02T15:04:05+08:00")), 1),
 }
 
-func ParseKMTOfficialSite(urls []string, breaks Breaks, headers map[string]string) error {
-	const ContentContainerSelector = "body #recentwork #Blog1" // Selector for the main content container
-	const MaxDepth = 2
-
+// ParseKmtOfficialSite scrapes the KMT official site for press releases.
+// Parameters:
+// - urls: List of seed URLs to start scraping from. (use KmtSeedUrls for default)
+// - breaks: Configuration for scraping breaks.
+// - selectors: SiteSelectors defining how to extract content from the page. (use KmtSelectors for default)
+// - headers: HTTP headers to use for requests.
+// Returns an error if the scraping process fails.
+func ParseKmtOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, headers map[string]string) error {
 	filters := []*regexp.Regexp{
-		regexp.MustCompile(`^https:\/\/www\.kmt\.org\.tw\/search/label/%E6%96%B0%E8%81%9E%E7%A8%BF`),
-		regexp.MustCompile(`^https:\/\/www\.kmt\.org\.tw\/\d{4}\/\d{2}\/.*\.html`),
+		regexp.MustCompile(`^https://www\.kmt\.org\.tw/search/label/%E6%96%B0%E8%81%9E%E7%A8%BF`),
+		regexp.MustCompile(`^https://www\.kmt\.org\.tw/\d{4}/\d{2}/.*\.html`),
 	}
-
-	collector := colly.NewCollector(
-		colly.AllowedDomains(
-			"www.kmt.org.tw",
-		),
-		colly.URLFilters(filters...),
-		colly.MaxDepth(MaxDepth),
-		colly.Async(true),
-	)
-
-	collector.Limit(&colly.LimitRule{
-		DomainGlob:  "*kmt.org.tw",
-		Parallelism: DefaultParallelism,
-		Delay:       breaks.ShortBreakMinTime,
-		RandomDelay: breaks.ShortBreakRandomRange,
-	})
-
-	collector.OnRequest(func(r *colly.Request) {
-		for key, value := range headers {
-			r.Headers.Set(key, value)
-		}
-		global.Logger.Info().
-			Str("URL", r.URL.String()).
-			Msg("Requesting URL")
-	})
-
-	collector.OnError(func(r *colly.Response, err error) {
-		global.Logger.Error().
-			Err(err).
-			Int("status_code", r.StatusCode).
-			Str("link", r.Request.URL.String()).
-			Msg("Request failed")
-	})
+	collector := newCollector("www.kmt.org.tw", 2, true, filters, breaks, headers)
 
 	collector.OnHTML(
-		ContentContainerSelector,
+		selectors.ContentContainerSelector,
 		func(e *colly.HTMLElement) {
-			if strings.Contains(e.Request.URL.String(), url.PathEscape("新聞稿")) {
-				for _, link := range ParseKMTPressReleaseList(e) {
-					collector.Visit(link)
+			urlStr := e.Request.URL.String()
+
+			if strings.Contains(urlStr, url.PathEscape("新聞稿")) {
+				links, next := parseKMTPressReleaseList(e, selectors)
+				for _, link := range links {
+					e.Request.Visit(link)
 				}
-				return
+				// new seed
+				collector.Visit(next)
 			}
-			_, err := ParseKMTPressReleaseContent(e)
+			_, err := parseKMTPressReleaseContent(e, selectors)
 			if err != nil {
 				global.Logger.Error().
 					Err(err).
@@ -84,26 +79,34 @@ func ParseKMTOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 		},
 	)
 
-	global.Logger.Info().Msg("Starting scraping process...")
 	for _, seed := range urls {
-		collector.Visit(seed)
+		err := collector.Visit(seed)
+		if err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("seed_url", seed).
+				Msg("Failed to visit seed URL")
+
+			return errors.NewWithHTTPStatus(
+				http.StatusInternalServerError,
+				errors.ErrorCodePressReleaseCollectorError,
+				"failed to visit seed URL",
+				err.Error())
+		}
 	}
 	collector.Wait()
-	global.Logger.Info().Msg("Scraping completed, press Ctrl+C to exit")
-
 	return nil
 }
 
-func ParseKMTPressReleaseList(e *colly.HTMLElement) (links []string) {
-	matches := regexp.MustCompile(`PageNo=(\d+)`).
-		FindAllStringSubmatch(e.Request.URL.String(), -1)
+// parseKMTPressReleaseList extracts links and the next page URL from the KMT press release list page.
+func parseKMTPressReleaseList(e *colly.HTMLElement, selector SiteSelectors) (links []string, next string) {
+	matches := regexp.MustCompile(`PageNo=(\d+)`).FindAllStringSubmatch(e.Request.URL.String(), -1)
 	pageNo := 1
 	if len(matches) > 0 {
 		pageNo, _ = strconv.Atoi(matches[0][1])
 	}
 
-	timestamp, ok := e.DOM.Find(".date-posts i.pdt abbr.published[itemprop='datePublished']").
-		Last().Attr("title")
+	timestamp, ok := e.DOM.Find(selector.NextPageTokenSelector).Last().Attr("title")
 	if !ok {
 		global.Logger.Error().
 			Str("link", e.Request.URL.String()).
@@ -111,13 +114,12 @@ func ParseKMTPressReleaseList(e *colly.HTMLElement) (links []string) {
 		return
 	}
 
-	links = make([]string, 0, 10)
-	e.DOM.Find(".date-posts h3 a").Each(func(i int, s *goquery.Selection) {
+	links = []string{}
+	e.DOM.Find(selector.HrefSelector).Each(func(i int, s *goquery.Selection) {
 		link, ok := s.Attr("href")
-		if !ok {
-			return
+		if ok && link != "" {
+			links = append(links, link)
 		}
-		links = append(links, link)
 	})
 
 	global.Logger.Info().
@@ -127,45 +129,54 @@ func ParseKMTPressReleaseList(e *colly.HTMLElement) (links []string) {
 		Str("timestamp", timestamp).
 		Msg("Found links")
 
-	e.Request.Visit(fmt.Sprintf(KmtURLTmpl, url.QueryEscape(timestamp), pageNo+1))
-	return links
+	next = fmt.Sprintf(KmtURLTmpl, url.QueryEscape(timestamp), pageNo+1)
+	return links, next
 }
 
-func ParseKMTPressReleaseContent(e *colly.HTMLElement) (Content, error) {
-	const (
-		TitleSelector    = "#div1 h3"                                        // Selector for the article title
-		ContentSelector  = "#div1 div.post-body p"                           // Selector for article content paragraphs
-		DateTimtSelector = "#div1 div.post-footer-line i.pdt abbr.published" // Selector for the published date
-		DateTimeFormat   = time.RFC3339                                      // Expected date format
-	)
-
+// parseKMTPressReleaseContent extracts the title, date, and content from a KMT press release page.
+func parseKMTPressReleaseContent(e *colly.HTMLElement, selector SiteSelectors) (Content, error) {
 	content := Content{}
 	content.Link = e.Request.URL.String()
-	content.Title = utils.NormalizeString(e.DOM.Find(TitleSelector).Text())
+	content.Title = utils.NormalizeString(e.DOM.Find(selector.TitleSelector).Text())
 
-	e.DOM.Find(ContentSelector).Each(func(i int, s *goquery.Selection) {
-		if i == 0 {
-			return
-		}
-		contentText := utils.NormalizeString(s.Text())
-
-		if len(contentText) > 0 {
-			content.Contents = append(content.Contents, contentText)
-		}
-	})
+	e.DOM.Find(selector.ContentSelector["default"]).
+		Each(func(i int, s *goquery.Selection) {
+			if i == 0 {
+				return
+			}
+			contentText := utils.NormalizeString(s.Text())
+			if len(contentText) > 0 {
+				content.Contents = append(content.Contents, contentText)
+			}
+		})
 
 	if len(content.Contents) == 0 {
-		global.Logger.Error().
+		global.Logger.Warn().
 			Str("link", content.Link).
-			Msg("No content found")
-		err := errors.ErrNoContent.Clone()
-		err.Details = append(err.Details, fmt.Sprintf("link: %s", content.Link))
-		return content, err
+			Str("selector", selector.ContentSelector["default"]).
+			Msg("No content found by default selector, try fallback selector")
+		if s, ok := selector.ContentSelector["fallback"]; ok && e.DOM.Find(s).Length() > 0 {
+			e.DOM.Find(s).Each(func(i int, s *goquery.Selection) {
+				contentText := utils.NormalizeString(s.Text())
+				if len(contentText) > 0 {
+					content.Contents = append(content.Contents, contentText)
+				}
+			})
+		} else {
+			global.Logger.Error().
+				Str("link", content.Link).
+				Bool("has_fallback_selector", ok).
+				Str("selector", selector.ContentSelector["fallback"]).
+				Msg("No content found by fallback selector, cannot parse content")
+			err := errors.ErrNoContent.Clone()
+			err.Details = append(err.Details, fmt.Sprintf("link: %s", content.Link))
+			return content, err
+		}
 	}
 
 	// Extract date from the page or fallback to content/link
-	if dateRaw, ok := e.DOM.Find(DateTimtSelector).Attr("title"); ok {
-		content.Date, _ = time.Parse(DateTimeFormat, dateRaw)
+	if dateRaw, ok := e.DOM.Find(selector.DateTimtSelector["default"]).Attr("title"); ok {
+		content.Date, _ = time.Parse(KmtTimeFormat, dateRaw)
 	} else {
 		if match := regexp.MustCompile(`(\d{2,3})\.(\d{2})\.(\d{2})`).FindStringSubmatch(content.Contents[0]); len(match) == 4 {
 			// Try to extract ROC date from content

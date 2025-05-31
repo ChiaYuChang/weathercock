@@ -9,12 +9,17 @@ services:
       - "${POSTGRES_PORT}:5432"
     secrets:
       - postgres_admin
+      - postgres_app_user
     volumes:
-      - ./configs/postgres:/etc/postgresql/config.d
+      - ./configs/postgres/config.d:/etc/postgresql/config.d
+      - ./configs/postgres/init.d:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PASSWORD_FILE: /run/secrets/postgres_app_user
+      POSTGRES_APP_DB: ${POSTGRES_APP_DB}
     command: ["-c", "config_file=/etc/postgresql/config.d/postgres.conf"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
@@ -70,5 +75,7 @@ volumes:
 secrets:
   postgres_admin:
     file: ${POSTGRES_PASSWORD_FILE}
+  postgres_app_user:
+    file: ${POSTGRES_APP_PASSWORD_FILE}
   valkey_acl:
     file: ${VALKEY_ACL_FILE}

@@ -1,0 +1,7 @@
+{{ define "ui-content" }}
+    <div class="content">
+        {{ range $index, $element := . }}
+            <p>$element</p>
+        {{ end }}
+    </div>
+{{ end }}

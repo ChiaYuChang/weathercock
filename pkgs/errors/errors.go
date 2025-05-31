@@ -24,11 +24,12 @@ const (
 
 // HTTP 500 - 599: Server errors
 const (
-	ErrorCodeInternalServerError = http.StatusInternalServerError
-	ErrorCodeNotImplemented      = http.StatusNotImplemented
-	ErrorCodeServiceUnavailable  = http.StatusServiceUnavailable
-	ErrorCodeGatewayTimeout      = http.StatusGatewayTimeout
-	ErrorCodeWebpageParsingError = 520
+	ErrorCodeInternalServerError        = http.StatusInternalServerError
+	ErrorCodeNotImplemented             = http.StatusNotImplemented
+	ErrorCodeServiceUnavailable         = http.StatusServiceUnavailable
+	ErrorCodeGatewayTimeout             = http.StatusGatewayTimeout
+	ErrorCodeWebpageParsingError        = 520
+	ErrorCodePressReleaseCollectorError = 521
 )
 
 type Error struct {

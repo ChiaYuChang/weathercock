@@ -17,23 +17,38 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
-var TPPSeedUrls = []string{
+// TppSiteSelectors defines the selectors used to extract content from the TPP official site.
+var TppSelectors = SiteSelectors{
+	TitleSelector:            ".content_topic",
+	ContentContainerSelector: ".news_container",
+	ContentSelector: map[string]string{
+		"default":  ".content_description",
+		"fallback": ".content_description span span",
+	},
+	HrefSelector: ".list_frame > a[href]",
+	DateTimtSelector: map[string]string{
+		"default": ".content_date",
+	},
+	NextPageTokenSelector: ".pages_container a:last-child",
+}
+
+// TppTimeFormat defines the date format used in TPP press releases.
+var TppTimeFormat = "2006/01/02"
+
+// TppSeedUrls contains the initial URLs to start scraping from the TPP official site.
+var TppSeedUrls = []string{
 	"https://www.tpp.org.tw/news?page=%d",
 }
 
-func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]string) error {
-	// CSS selectors and time format for parsing the TPP website
-	const (
-		TitleSelector           = "div.content_topic"                  // Selector for the article title
-		ContainerSelector       = ".news_container"                    // Selector for the content container
-		ContentSelector         = ".content_description > span > span" // Selector for article content paragraphs
-		ContentSelectorFallback = ".content_description"               // Fallback selector for content
-		HrefSelector            = ".list_frame > a[href]"              // Selector for article links
-		DateTimtSelector        = ".content_date"                      // Selector for the published date
-		DateTimeFormat          = "2006/01/02"                         // Expected date format
-	)
-
-	total, err := TPPRetrieveLastPage("https://www.tpp.org.tw/news", headers)
+// ParseTppOfficialSite scrapes the TPP official site for press releases.
+// Parameters:
+// - urls: List of seed URLs to start scraping from. (use TppSeedUrls for default)
+// - breaks: Configuration for scraping breaks.
+// - selectors: SiteSelectors defining how to extract content from the page. (use TppSelectors for default)
+// - headers: HTTP headers to use for requests.
+// Returns an error if the scraping process fails.
+func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, headers map[string]string) error {
+	total, err := retrieveTppLastPage("https://www.tpp.org.tw/news", headers)
 	if err != nil {
 		global.Logger.Error().
 			Err(err).
@@ -53,59 +68,17 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 		regexp.MustCompile(`^https:\/\/www\.tpp\.org\.tw\/newsdetail\/\d{4}$`),
 		regexp.MustCompile(`^https:\/\/www\.tpp\.org\.tw\/news.*`),
 	}
-
-	collector := colly.NewCollector(
-		colly.AllowedDomains(
-			"www.tpp.org.tw",
-		),
-		colly.URLFilters(filters...),
-		colly.MaxDepth(1),
-		colly.Async(true),
-	)
-
-	collector.Limit(&colly.LimitRule{
-		DomainGlob:  "*tpp.org.tw",
-		Parallelism: DefaultParallelism,
-		Delay:       breaks.ShortBreakMinTime * time.Second,
-		RandomDelay: breaks.ShortBreakRandomRange * time.Second,
-	})
-
-	collector.OnRequest(func(r *colly.Request) {
-		for key, value := range headers {
-			r.Headers.Set(key, value)
-		}
-		global.Logger.Info().
-			Str("URL", r.URL.String()).
-			Msg("Requesting URL")
-	})
-
-	collector.OnError(func(r *colly.Response, err error) {
-		global.Logger.Error().
-			Err(err).
-			Int("status_code", r.StatusCode).
-			Str("link", r.Request.URL.String()).
-			Msg("Request failed")
-	})
-
-	collector.OnResponse(func(r *colly.Response) {
-		if r.StatusCode != http.StatusOK {
-			global.Logger.Error().
-				Str("URL", r.Request.URL.String()).
-				Int("status_code", r.StatusCode).
-				Msg("request failed with non-200 status code")
-			return
-		}
-	})
+	collector := newCollector("www.tpp.org.tw", 2, true, filters, breaks, headers)
 
 	collector.OnHTML(
-		ContainerSelector,
+		selectors.ContentContainerSelector,
 		func(e *colly.HTMLElement) {
 			content := Content{}
 			content.Link = e.Request.URL.String()
 
 			date, err := time.ParseInLocation(
-				DateTimeFormat,
-				e.DOM.Find(DateTimtSelector).First().Text(),
+				TppTimeFormat,
+				e.DOM.Find(selectors.DateTimtSelector["default"]).First().Text(),
 				DefaultTimeZone,
 			)
 			if err != nil {
@@ -116,10 +89,10 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 				date = time.Now()
 			}
 			content.Date = date
-			content.Title = utils.NormalizeString(e.DOM.Find(TitleSelector).First().Text())
+			content.Title = utils.NormalizeString(e.DOM.Find(selectors.TitleSelector).First().Text())
 
-			if e.DOM.Find(ContentSelector).Length() > 0 {
-				e.DOM.Find(ContentSelector).
+			if s, ok := selectors.ContentSelector["default"]; ok && e.DOM.Find(s).Length() > 0 {
+				e.DOM.Find(selectors.ContentSelector["default"]).
 					Each(func(i int, s *goquery.Selection) {
 						text := utils.NormalizeString(s.Text())
 						if len(text) > 0 {
@@ -129,9 +102,15 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 			} else {
 				global.Logger.Info().
 					Str("link", content.Link).
-					Msg("no content found, trying fallback selector")
+					Msg("no content found with default selector or default selector not set, using fallback selector")
+				if s, ok = selectors.ContentSelector["fallback"]; !ok {
+					global.Logger.Error().
+						Str("link", content.Link).
+						Msg("fallback content selector not found, cannot parse content")
+					return
+				}
 
-				raw := e.DOM.Find(ContentSelectorFallback).First().Text()
+				raw := e.DOM.Find(s).First().Text()
 				texts := strings.Split(raw, "\n\n")
 				for _, text := range texts {
 					text = utils.NormalizeString(text)
@@ -167,10 +146,10 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 	)
 
 	collector.OnHTML(
-		HrefSelector,
+		selectors.HrefSelector,
 		func(e *colly.HTMLElement) {
 			var link string
-			if link = e.Attr("href"); len(link) == 0 {
+			if link = e.DOM.AttrOr("href", ""); link == "" {
 				return
 			}
 
@@ -179,16 +158,24 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 					global.Logger.Info().Msgf("Found link: %s", link)
 				}
 			}
-			collector.Visit(e.Request.AbsoluteURL(link))
+			e.Request.Visit(e.Request.AbsoluteURL(link))
 		},
 	)
 
-	for i := 1; i <= total; i++ {
-		err := collector.Visit(fmt.Sprintf(TPPSeedUrls[0], i))
+	for i := 1; i <= 3; i++ {
+		// if i%10 == 0 {
+		// 	delay := breaks.LongBreakMinTime + time.Duration(rand.IntN(int(breaks.LongBreakRandomRange.Seconds())))*time.Second
+		// 	global.Logger.Info().
+		// 		Int("page", i).
+		// 		Dur("delay", delay).
+		// 		Msg("Taking a long break before visiting next page")
+		// 	time.Sleep(delay)
+		// }
+		err := collector.Visit(fmt.Sprintf(TppSeedUrls[0], i))
 		if err != nil {
 			global.Logger.Error().
 				Err(err).
-				Str("seed_url", fmt.Sprintf(TPPSeedUrls[0], i)).
+				Str("seed_url", fmt.Sprintf(TppSeedUrls[0], i)).
 				Msg("Failed to visit Seed URL")
 			return err
 		}
@@ -197,7 +184,8 @@ func ParseTPPOfficialSite(urls []string, breaks Breaks, headers map[string]strin
 	return nil
 }
 
-func TPPRetrieveLastPage(u string, headers map[string]string) (int, error) {
+// retrieveTppLastPage retrieves the last page number of press releases page from TPP official site.
+func retrieveTppLastPage(u string, headers map[string]string) (int, error) {
 	// Create HTTP request and set headers
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {

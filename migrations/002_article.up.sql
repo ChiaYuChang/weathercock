@@ -44,10 +44,9 @@ CREATE TABLE embeddings (
     UNIQUE(article_id, chunk_id, model_id, vector)
 );
 
-CREATE SCHEMA IF NOT EXISTS users;
-
 CREATE TABLE users.articles (
     id           SERIAL      PRIMARY KEY,
+    task_id      UUID        NOT NULL REFERENCES users.tasks(task_id) ON DELETE CASCADE,
     title        TEXT        NOT NULL,
     url          TEXT        NOT NULL,
     source       TEXT        NOT NULL,  -- 聯合報, 自由時報, TVBS, 使用者輸入, etc.

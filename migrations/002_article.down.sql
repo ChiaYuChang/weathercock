@@ -24,8 +24,6 @@ DROP TABLE IF EXISTS articles;
 -- Reset the sequence for model table
 ALTER SEQUENCE models_id_seq RESTART WITH 1;
 
-DROP SCHEMA IF EXISTS users;
-
 -- Drop the model table
 DROP TABLE IF EXISTS models;
 

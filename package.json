@@ -1,14 +1,27 @@
 {
+  "type": "module",
   "dependencies": {
+    "@alpinejs/morph": "^3.14.9",
+    "@alpinejs/persist": "^3.14.9",
     "@tailwindcss/cli": "^4.1.7",
-    "tailwindcss": "^4.1.7"
+    "@tailwindcss/vite": "^4.1.8",
+    "alpinejs": "^3.14.9",
+    "htmx.org": "^2.0.4",
+    "tailwindcss": "^4.1.8",
+    "vite": "^6.3.5"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11"
   },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "prettier": {
-    "plugins": ["prettier-plugin-tailwindcss"],
+    "plugins": [
+      "prettier-plugin-tailwindcss"
+    ],
     "tabWidth": 4,
     "semi": false,
     "singleQuote": true,

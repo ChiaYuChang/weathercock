@@ -1,7 +1,57 @@
+{{ define "svg-doc"}}
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    class="icon mr-1.5"
+    viewBox="0 0 20 20"
+    fill="currentColor"
+>
+    <path
+        fill-rule="evenodd"
+        d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2H4zm0 2h12v2H4V4zm0 4h12v2H4V8zm0 4h12v2H4v-2z"
+        clip-rule="evenodd"
+    />
+</svg>
+{{ end }}
+
+{{ define "svg-calendar"}}
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    class="icon mr-1.5"
+    viewBox="0 0 20 20"
+    fill="currentColor"
+>
+    <path
+        fill-rule="evenodd"
+        d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5h8v2H6V7zm0 4h8v2H6v-2z"
+        clip-rule="evenodd"
+    />
+</svg>
+{{ end }}
+
 {{ define "ui-content" }}
+<div class="p-6 md:p-8">
+    <h2 class="mb-3">
+        <a href="{{ .Link }}">{{ .Title }}</a>
+    </h2>
+    <div
+        class="meta mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500"
+    >
+        <span class="flex items-center">
+            {{ template "svg-doc" }}
+            {{ .Source }}
+        </span>
+        <span class="flex items-center">
+            {{ template "svg-calendar" }}
+            {{ timeFormat .PublishedAt "2006-01-02" }}
+        </span>
+    </div>
     <div class="content">
-        {{ range $index, $element := . }}
-            <p>$element</p>
+        {{ range $index, $paragraph := .Content }}
+        <p>{{ $paragraph }}</p>
         {{ end }}
     </div>
+    <div class="keywords mt-8">
+        <h3 class="mb-3">關鍵字</h3>
+    </div>
+</div>
 {{ end }}

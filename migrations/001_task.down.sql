@@ -4,7 +4,8 @@ DROP TABLE IF EXISTS users.tasks;
 
 DROP TYPE IF EXISTS source_type;
 
-DROP TABLE IF EXISTS users.info;
+-- TODO for mutiple user systems
+-- DROP TABLE IF EXISTS users.info;
 
 DROP SCHEMA IF EXISTS users;
 

@@ -46,6 +46,14 @@ tasks:
         - version
     cmds:
       - bash ./scripts/migrate.sh force {{.version}}
+  db-dump:
+    desc: Dump the database to a file
+    cmds:
+      - bash ./scripts/pgsql-dump.sh
+  sqlc-generate:
+    desc: Generate Go code from SQL queries
+    cmds:
+      - sqlc generate --file ./sqlc.json
   watch-css:
     desc: Watch for changes in style.css and compile them
     cmds:

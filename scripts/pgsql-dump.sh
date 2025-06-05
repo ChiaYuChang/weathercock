@@ -5,7 +5,7 @@ username=${POSTGRES_USER:-"pgadmin"}
 secret=`cat ${POSTGRES_PASSWORD_FILE}`
 host='localhost'
 port='5432'
-database=${MIGRATIONS_DB:-"app"}
+database=${POSTGRES_APP_DB:-"app"}
 sslmode='disable'
 conn_str="postgres://$username:$secret@$host:$port/$database?sslmode=$sslmode"
 output='./schema.sql'

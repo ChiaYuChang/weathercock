@@ -9,7 +9,7 @@ import (
 )
 
 func TestParseKMTPressRelease(t *testing.T) {
-	global.Initialization()
+	global.InitTestLogger()
 	err := scrapers.ParseKmtOfficialSite(
 		scrapers.KmtSeedUrls,
 		scrapers.DefaultBreaks,

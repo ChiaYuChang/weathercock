@@ -49,10 +49,14 @@
                         hx-post="/api/v1/task/url"
                         hx-target="#input-area"
                         hx-swap="outerHTML"
+                        hx-push-url="/article"
                         x-show="mode === 'url'"
                         class="flex flex-col gap-4"
-                        x-data='{ 
-                           valid: {
+                        x-data='{
+                            url: "",
+                            apikey: "",
+                            cx: "",
+                            valid: {
                                 isValid: true,
                                 errMsg: "",
                                 errType: "",
@@ -63,46 +67,56 @@
                             type="text"
                             name="query_url"
                             id="query_url"
+                            x-model="url"
                             class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
                             :class="valid.errType === 'ERR_NOT_SUPPORTED_URL' ? 
                                 'border-red-500 focus:border-red-500 focus:ring-red-500' : 
                                 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
                             placeholder="tw.news.yahoo.com"
                             required
+                            @input="valid=validateUrl(url)"
                             title="請輸入 Yahoo 新聞網址"
                         />
                         <input
                             type="password"
                             name="api_key"
                             id="api_key"
+                            x-model="apikey"
                             class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
                             :class="(valid.errType === 'ERR_API_KEY_REQUIRED' || valid.errType === 'ERR_INVALID_API_KEY') ? 
                                 'border-red-500 focus:border-red-500 focus:ring-red-500' : 
                                 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
                             placeholder="Google API Key"
                             required
+                            @input="valid=validateApiKey(apikey)"
                             title="請於 Google Cloud Console 建立的 API 金鑰"
                         />
                         <input
                             type="text"
                             name="cx"
                             id="cx"
+                            x-model="cx"
                             class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
                             :class="(valid.errType === 'ERR_CX_REQUIRED' || valid.errType === 'ERR_INVALID_CX') ? 
                                 'border-red-500 focus:border-red-500 focus:ring-red-500' : 
                                 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
                             placeholder="Programmable Search Engine ID (cx)"
-                            title="請於 Google Programmable Search Engine 建立的搜尋引擎 ID"
                             required
+                            @input="valid=validateCx(cx)"
+                            title="請於 Google Programmable Search Engine 建立的搜尋引擎 ID"
                         />
                         <p
                             id="query_url_err_msg"
+                            x-show="valid.errMsg"
                             x-text="valid.errMsg"
-                            class="text-red-500"
+                            x-transition
+                            class="min-h-[1.25rem] text-sm text-red-500"
                         ></p>
                         <button
                             type="submit"
                             class="focus:ring-opacity-50 mt-3 rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none md:mt-0"
+                            :disabled="!valid.isValid"
+                            :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
                         >
                             搜尋
                         </button>
@@ -112,6 +126,7 @@
                         hx-post="/api/v1/task/text"
                         hx-target="#input-area"
                         hx-swap="outerHTML"
+                        hx-push-url="/article"
                         x-show="mode === 'text'"
                         x-data='{
                             content: "",
@@ -142,12 +157,16 @@
                         ></textarea>
                         <p
                             id="query_text_err_msg"
+                            x-show="valid.errMsg"
                             x-text="valid.errMsg"
-                            class="text-red-500"
+                            x-transition
+                            class="min-h-[1.25rem] text-sm text-red-500"
                         ></p>
                         <div class="flex flex-row gap-4">
                             <button
                                 class="focus:ring-opacity-50 basis-lg rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                :disabled="!valid.isValid"
+                                :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
                             >
                                 提交
                             </button>
@@ -156,6 +175,8 @@
                                 class="focus:ring-opacity-50 min-w-36 grow rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                 title="清除輸入內容"
                                 @click="cleanup()"
+                                :disabled="!content"
+                                :class="!content ? 'opacity-50 cursor-not-allowed' : ''"
                             >
                                 清除
                             </button>
@@ -171,7 +192,6 @@
     <script>
         document.body.addEventListener('htmx:beforeRequest', (env) => {
             const form = env.target
-            console.log('htmx:beforeRequest', form.id)
             if (form.id === 'url-form') {
                 console.log('Custom validation for URL form')
                 const url = form.querySelector('#query_url').value.trim()
@@ -186,20 +206,15 @@
                     env.preventDefault()
                     return
                 }
-                console.log('Validation passed:', valid)
             }
 
             if (form.id === 'query_text_form') {
-                console.log('Custom validation for text form')
                 const content = form.querySelector('#query_text').value.trim()
-                console.log('Content to validate:', content)
-
                 const valid = validateQueryText(content, env)
-                console.log('Validation result:', valid)
-
+                const alpineData = Alpine.$data(form)
+                alpineData.valid = valid
                 if (!valid.isValid) {
                     const errMsg = document.getElementById('query_text_err_msg')
-                    console.warn('Validation failed:', valid.errMsg)
                     errMsg.textContent = valid.errMsg
                     env.preventDefault()
                     return
@@ -209,61 +224,22 @@
 
         // validate query_url
         function validateQueryUrl(url, apikey, cx) {
-            const urlPattern = /^(https?:\/\/)?(tw\.)?news\.yahoo\.com(\/.*)?$/i
-            const reUrl = new RegExp(urlPattern, 'i')
-            if (!reUrl.test(url)) {
-                console.warn('Validation failed: Invalid URL format')
-                return {
-                    isValid: false,
-                    errMsg: '請輸入有效的 Yahoo 新聞網址。',
-                    errType: 'ERR_NOT_SUPPORTED_URL',
-                }
+            let valid = validateUrl(url)
+            if (!valid.isValid) {
+                console.warn('Validation failed for URL:', valid.errMsg)
+                return valid
             }
 
-            if (!apikey) {
-                const errMsg = document.getElementById('err-msg')
-                console.warn('Validation failed: API key is required')
-                return {
-                    isValid: false,
-                    errMsg: '請輸入 Google API 金鑰。',
-                    errType: 'ERR_API_KEY_REQUIRED',
-                }
+            valid = validateApiKey(apikey)
+            if (!valid.isValid) {
+                console.warn('Validation failed for API key:', valid.errMsg)
+                return valid
             }
 
-            const GoogleApiKeyPattern = /^[A-Za-z0-9-_]{39}$/
-            const reApiKey = new RegExp(GoogleApiKeyPattern, 'i')
-            if (!reApiKey.test(apikey)) {
-                console.warn('Validation failed: Invalid API key')
-                return {
-                    isValid: false,
-                    errMsg: 'Google API 金鑰格式錯誤，請檢查輸入。',
-                    errType: 'ERR_INVALID_API_KEY',
-                }
-            }
-
-            console.log('Programmable Search Engine ID (cx) to validate:', cx)
-            if (!cx) {
-                console.warn(
-                    'Validation failed: Programmable Search Engine ID (cx) is required'
-                )
-                return {
-                    isValid: false,
-                    errMsg: 'Programmable Search Engine ID (cx) 為必填項目。',
-                    errType: 'ERR_CX_REQUIRED',
-                }
-            }
-
-            const cxPattern = /^[A-Za-z0-9-_]{17}$/
-            const reCx = new RegExp(cxPattern, 'i')
-            if (!reCx.test(cx)) {
-                console.warn(
-                    'Validation failed: Invalid Programmable Search Engine ID (cx)'
-                )
-                return {
-                    isValid: false,
-                    errMsg: 'Programmable Search Engine ID (cx) 格式錯誤，請檢查輸入。',
-                    errType: 'ERR_INVALID_CX',
-                }
+            valid = validateCx(cx)
+            if (!valid.isValid) {
+                console.warn('Validation failed for cx:', valid.errMsg)
+                return valid
             }
             return { isValid: true, errMsg: '', errType: '' }
         }
@@ -300,6 +276,73 @@
                 pattern = new RegExp(pattern, 'i')
                 return pattern.test(content)
             })
+        }
+
+        // validate url
+        function validateUrl(url) {
+            const urlPattern = /^(https?:\/\/)?(tw\.)?news\.yahoo\.com(\/.*)?$/i
+            const reUrl = new RegExp(urlPattern, 'i')
+            if (!reUrl.test(url)) {
+                console.warn('Validation failed: Invalid URL format')
+                return {
+                    isValid: false,
+                    errMsg: '請輸入有效的 Yahoo 新聞網址。',
+                    errType: 'ERR_NOT_SUPPORTED_URL',
+                }
+            }
+            return { isValid: true, errMsg: '', errType: '' }
+        }
+
+        // validate api key
+        function validateApiKey(apiKey) {
+            if (!apiKey) {
+                console.warn('Validation failed: API key is required')
+                return {
+                    isValid: false,
+                    errMsg: '請輸入 Google API 金鑰。',
+                    errType: 'ERR_API_KEY_REQUIRED',
+                }
+            }
+
+            const GoogleApiKeyPattern = /^[A-Za-z0-9-_]{39}$/
+            const reApiKey = new RegExp(GoogleApiKeyPattern, 'i')
+            if (!reApiKey.test(apiKey)) {
+                console.warn('Validation failed: Invalid API key')
+                return {
+                    isValid: false,
+                    errMsg: 'Google API 金鑰格式錯誤，請檢查輸入。',
+                    errType: 'ERR_INVALID_API_KEY',
+                }
+            }
+            return { isValid: true, errMsg: '', errType: '' }
+        }
+
+        // validate cx
+        function validateCx(cx) {
+            if (!cx) {
+                console.warn(
+                    'Validation failed: Programmable Search Engine ID (cx) is required'
+                )
+                return {
+                    isValid: false,
+                    errMsg: 'Programmable Search Engine ID (cx) 為必填項目。',
+                    errType: 'ERR_CX_REQUIRED',
+                }
+            }
+
+            const cxPattern = /^[A-Za-z0-9-_]{17}$/
+            const reCx = new RegExp(cxPattern, 'i')
+            if (!reCx.test(cx)) {
+                console.warn(
+                    'Validation failed: Invalid Programmable Search Engine ID (cx)'
+                )
+                return {
+                    isValid: false,
+                    errMsg: 'Programmable Search Engine ID (cx) 格式錯誤，請檢查輸入。',
+                    errType: 'ERR_INVALID_CX',
+                }
+            }
+            return { isValid: true, errMsg: '', errType: '' }
         }
     </script>
 </html>

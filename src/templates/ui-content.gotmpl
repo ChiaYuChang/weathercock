@@ -29,12 +29,12 @@
 {{ end }}
 
 {{ define "ui-content" }}
-<div class="p-6 md:p-8">
+<div class="p-6 md:p-8" x-show="open">
     <h2 class="mb-3">
         <a href="{{ .Link }}">{{ .Title }}</a>
     </h2>
     <div
-        class="meta mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500"
+        class="meta mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-base text-slate-500"
     >
         <span class="flex items-center">
             {{ template "svg-doc" }}
@@ -52,6 +52,31 @@
     </div>
     <div class="keywords mt-8">
         <h3 class="mb-3">關鍵字</h3>
+        <div
+            x-data='{ 
+                is_ready: false,
+                keywords: [],
+                async init() {
+                    try {
+                        const data = await pollKeywords();
+                        this.keywords = data.keywords;
+                        this.is_ready = true;
+                    } catch (error) {
+                        console.error("Error fetching keywords:", error);
+                    }
+                }
+            }'
+            class="flex flex-wrap gap-2"
+        >
+        <div x-show="!is_ready">
+            <span class="text-slate-500">載入中...</span>
+        </div>
+        <div x-show="is_ready" class="flex flex-wrap contetn-start gap-2">  
+        <template x-for="keyword in keywords" class="inline-block">
+                <span x-text="keyword" class="rounded-4xl bg-indigo-200 px-2 text-base text-slate-800"></span>
+        </template>
+        <div>
+        </div>
     </div>
 </div>
 {{ end }}

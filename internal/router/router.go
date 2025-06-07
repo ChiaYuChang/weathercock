@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ type Article struct {
 	Source      string    `json:"source"`
 	Content     []string  `json:"content"`
 	PublishedAt time.Time `json:"published_at"`
+	Keywords    []string  `json:"keywords,omitempty"`
 }
 
 var TestArticle = Article{
@@ -29,11 +31,11 @@ var TestArticle = Article{
 		"下一代人本交通促進會理事長王晉謙指出，目前的75歲以上換照資格過於簡單，比方說問你今天幾號，今年幾歲，這種簡單的問題。真正要做的是全面的駕駛訓練，並且要去檢視，駕駛還有沒有在夜間、白天於道路上駕駛的能力。行人零死亡推動聯盟理事長陳愷寧也表示，75歲以上駕駛人僅需通過簡易體檢與認知測驗，卻無實質針對駕駛能力的測驗。這起三峽重大車禍，引發社會高度關注，也讓交通部火速啟動高齡駕駛管理機制的全面檢討，包括換照標準是否應加嚴、駕駛體檢制度是否足夠等，都成為討論焦點。不過，肇事原因尚未釐清，究竟是駕駛疏失、車輛故障，還是其他狀況，仍待警方與專業單位調查釐清。台北／黃品寧、劉醇唯 責任編輯／周瑾逸",
 	},
 	PublishedAt: time.Date(2025, 5, 22, 0, 0, 0, 0, time.UTC),
+	Keywords:    []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
 }
 
 func NewRouter() *http.ServeMux {
 	mux := http.NewServeMux()
-
 	// file server
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 
@@ -94,5 +96,53 @@ func NewRouter() *http.ServeMux {
 		w.Write(buff.Bytes())
 	})
 
+	mux.HandleFunc("GET /api/v1/keywords", func(w http.ResponseWriter, r *http.Request) {
+		v, ok := global.Cache.Load(r.Host)
+		if !ok {
+			v = 0
+		}
+		c := v.(int)
+
+		// Similate not ready state
+		if c < 5 {
+			global.Cache.Store(r.Host, c+1)
+			global.Logger.Info().
+				Str("path", r.URL.Path).
+				Str("host", r.Host).
+				Msg("Received request for keywords")
+
+				// Simulate fetching keywords are not yet ready
+				// if rand.IntN(10) < 2 { // 20% chance to simulate failure
+			global.Logger.Error().
+				Str("path", r.URL.Path).
+				Msg("Keywords not ready yet")
+			payload, _ := json.Marshal(map[string]any{
+				"is_ready": false,
+			})
+
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(payload)
+			return
+		}
+
+		// Simulate fetching keywords
+		global.Logger.Info().
+			Str("path", r.URL.Path).
+			Str("host", r.Host).
+			Msg("Keywords are ready, returning response")
+		payload, _ := json.Marshal(map[string]any{
+			"is_ready": true,
+			"keywords": []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(payload)
+		global.Cache.Store(r.Host, 0) // Reset the counter after serving
+		global.Logger.Debug().
+			Str("path", r.URL.Path).
+			Str("host", r.Host).
+			Msg("Counter reset after serving keywords request")
+	})
 	return mux
 }

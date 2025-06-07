@@ -1,8 +1,10 @@
 package global
 
 import (
+	"fmt"
 	"html/template"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 
 var Logger zerolog.Logger
 var Templates *template.Template
+
+var Cache = sync.Map{}
 
 var validate struct {
 	*validator.Validate
@@ -66,6 +70,16 @@ func InitTemplateRepo() error {
 	funcs := template.FuncMap{
 		"timeFormat": func(t time.Time, layout string) string {
 			return t.Format(layout)
+		},
+		"join": func(items []string, sep string) string {
+			if len(items) == 0 {
+				return ""
+			}
+			qs := make([]string, len(items))
+			for i, item := range items {
+				qs[i] = fmt.Sprintf("%q", item)
+			}
+			return strings.Join(qs, sep)
 		},
 	}
 

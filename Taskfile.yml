@@ -66,6 +66,10 @@ tasks:
     desc: Build the CSS file
     cmds:
       - npx @tailwindcss/cli -i "$CSS_SRC" -o "$CSS_DST" --minify
+  bundle-js:
+    desc: Bundle JavaScript files using esbuild
+    cmds:
+      - npm run build
   build-protobuf:
     desc: Generate Go code from protobuf definitions
     cmds:

@@ -172,3 +172,11 @@ const InjectionPatterns = [
 
 window.InjectionPatterns = InjectionPatterns;
 window.Hi = Hi;
+
+// Initualize Alpine.js after HTMX swap
+document.body.addEventListener('htmx:afterRequest', (env) => {
+    if (Alpine && typeof Alpine.initTree === 'function') {
+        // Reinitialize Alpine.js after HTMX request
+        Alpine.initTree(env.target)
+    }
+})

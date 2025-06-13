@@ -9,27 +9,37 @@ import (
 // Error Code
 // 000 - 099: General errors
 const (
-	ErrorCodeUnknown         = 000
-	ErrorCodeMarshalFailed   = 001
-	ErrorCodeUnmarshalFailed = 002
+	ECUnknown         = 000
+	ECMarshalFailed   = 001
+	ECUnmarshalFailed = 002
 )
 
 // HTTP 400 - 499: Client errors
 const (
-	ErrorCodeBadRequest      = http.StatusBadRequest
-	ErrorCodeUnauthorized    = http.StatusUnauthorized
-	ErrorCodeNoContent       = http.StatusNoContent
-	ErrorCodeTooManyRequests = http.StatusTooManyRequests
+	ECBadRequest      = http.StatusBadRequest
+	ECUnauthorized    = http.StatusUnauthorized
+	ECNoContent       = http.StatusNoContent
+	ECTooManyRequests = http.StatusTooManyRequests
 )
 
 // HTTP 500 - 599: Server errors
 const (
-	ErrorCodeInternalServerError        = http.StatusInternalServerError
-	ErrorCodeNotImplemented             = http.StatusNotImplemented
-	ErrorCodeServiceUnavailable         = http.StatusServiceUnavailable
-	ErrorCodeGatewayTimeout             = http.StatusGatewayTimeout
-	ErrorCodeWebpageParsingError        = 520
-	ErrorCodePressReleaseCollectorError = 521
+	ECInternalServerError = http.StatusInternalServerError
+	ECNotImplemented      = http.StatusNotImplemented
+	ECServiceUnavailable  = http.StatusServiceUnavailable
+	ECGatewayTimeout      = http.StatusGatewayTimeout
+)
+const (
+	ECWebpageParsingError = iota + 520
+	ECPressReleaseCollectorError
+	ECValidationError
+)
+
+const (
+	ECDatabaseError = iota + 550
+	ECNoRows
+	ECIntegrityConstrainViolation
+	ECTransactionRollback
 )
 
 type Error struct {
@@ -41,8 +51,13 @@ type Error struct {
 }
 
 var (
-	ErrBadRequest = NewWithHTTPStatus(http.StatusBadRequest, ErrorCodeBadRequest, "Bad request")
-	ErrNoContent  = NewWithHTTPStatus(http.StatusNoContent, ErrorCodeNoContent, "No content available")
+	ErrBadRequest                    = NewWithHTTPStatus(http.StatusBadRequest, ECBadRequest, "bad request")
+	ErrNoContent                     = NewWithHTTPStatus(http.StatusNoContent, ECNoContent, "no content available")
+	ErrValidationFailed              = NewWithHTTPStatus(http.StatusBadRequest, ECValidationError, "validation failed")
+	ErrDBError                       = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseError, "database error")
+	ErrNotFound                      = NewWithHTTPStatus(http.StatusNotFound, ECNoRows, "no record found")
+	ErrDBIntegrityConstrainViolation = NewWithHTTPStatus(http.StatusConflict, ECIntegrityConstrainViolation, "integrity constraint violation")
+	ErrDBTransactionRollback         = NewWithHTTPStatus(http.StatusInternalServerError, ECTransactionRollback, "transaction rollback error")
 )
 
 func NewWithHTTPStatus(status, code int, message string, details ...string) *Error {
@@ -62,6 +77,19 @@ func New(code int, message string, details ...string) *Error {
 		message,
 		details...,
 	)
+}
+
+func FromPgError(e *PGErr) *Error {
+	if e == nil {
+		return nil
+	}
+	return NewWithHTTPStatus(
+		http.StatusInternalServerError,
+		ECDatabaseError,
+		fmt.Sprintf("[%s][%s] %s", e.Code, e.Severity, e.Message),
+		e.Details,
+	)
+
 }
 
 func (e *Error) Error() string {
@@ -96,6 +124,33 @@ func (e *Error) Clone() *Error {
 		Details:    append([]string{}, e.Details...),
 		internal:   e.internal,
 	}
+}
+
+func (e *Error) WithMessage(message string) *Error {
+	if e == nil {
+		return nil
+	}
+	e.Message = message
+	return e
+}
+
+func (e *Error) WithDetails(details ...string) *Error {
+	if e == nil {
+		return nil
+	}
+	e.Details = append(e.Details, details...)
+	return e
+}
+
+func (e *Error) Warp(err error) *Error {
+	if e == nil {
+		return nil
+	}
+	if err == nil {
+		return e
+	}
+	e.internal = err
+	return e
 }
 
 func Wrap(err error, status, code int, message string, details ...string) *Error {

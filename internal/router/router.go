@@ -2,13 +2,17 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/global"
+	"github.com/ChiaYuChang/weathercock/internal/llm"
+	"github.com/ChiaYuChang/weathercock/internal/storage"
 )
 
 type Article struct {
@@ -34,7 +38,7 @@ var TestArticle = Article{
 	Keywords:    []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
 }
 
-func NewRouter() *http.ServeMux {
+func NewRouter(store storage.Storage) *http.ServeMux {
 	mux := http.NewServeMux()
 	// file server
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
@@ -55,18 +59,42 @@ func NewRouter() *http.ServeMux {
 			w.Write([]byte("Failed to parse form data"))
 			return
 		}
-		u := r.Form["query_url"]
-		apikey := r.Form["api_key"]
-		cx := r.Form["cx"]
-		global.Logger.Debug().
-			Str("path", r.URL.Path).
-			Str("query_url", u[0]).
-			Str("api_key", apikey[0]).
-			Str("cx", cx[0]).
-			Msg("Parsed form data for URL task")
 
-		w.WriteHeader(http.StatusNotImplemented)
-		w.Write([]byte("Not implemented yet"))
+		// TODO: validate url (e.g. is from tw.news.yahoo.com, is unique, etc.)
+		u := r.Form["query_url"][0]
+		vCtx, vCancel := context.WithTimeout(r.Context(), 1*time.Second)
+		defer vCancel()
+		err := global.Validate().VarCtx(vCtx, u, "url,required")
+		if err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("query_url", u).
+				Msg("Invalid URL format")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid URL format"))
+			return
+		}
+
+		// TODO: insert task into database, database should return a task ID (uuid)
+		sCtx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer sCancel()
+		taskID, err := store.Task().CreateFromURL(sCtx, u)
+		if err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("query_url", u).
+				Msg("Failed to create task from URL")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Failed to create task from URL"))
+			return
+		}
+
+		// TODO: push to task.create channel
+
+		w.Header().Set("HX-PUSH-URL", fmt.Sprintf("/task/%s", taskID.String()))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /api/v1/task/text", func(w http.ResponseWriter, r *http.Request) {
@@ -76,28 +104,127 @@ func NewRouter() *http.ServeMux {
 			global.Logger.Error().
 				Err(err).
 				Str("path", r.URL.Path).
+				Str("body", string(rawBody)).
 				Msg("Failed to read request body")
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Failed to read request body"))
 			return
 		}
+		text := strings.TrimSpace(string(rawBody))
 
+		// TODO: detect malicious content in rawBody (e.g. XSS, SQL injection, etc.)
+		if found, _ := llm.DetectLlmInjection(text); found {
+			global.Logger.Error().
+				Str("path", r.URL.Path).
+				Str("body", text).
+				Msg("Detected potential LLM injection in text task")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Detected potential LLM injection in text task"))
+			return
+		}
+
+		// TODO: detect if the content contains titles (start with # at the first line)
+		contents := strings.Split(text, "\n")
+		var title string
+		if len(contents) > 0 && strings.HasPrefix(contents[0], "#") {
+			title = strings.TrimSpace(contents[0][1:]) // remove the leading '#'
+		} else {
+			// TODO: auto generate title if not provided
+			global.Logger.Warn().
+				Str("path", r.URL.Path).
+				Msg("No title provided, auto-generating title")
+			title = "[[ Auto-Generated Title ]]"
+		}
+
+		for i, content := range contents {
+			contents[i] = strings.TrimSpace(content)
+		}
+		global.Logger.Info().
+			Str("path", r.URL.Path).
+			Str("title", title).
+			Strs("contents", contents).
+			Msg("Received text task")
+
+		// TODO: insert task into database, database should return a task ID (uuid)
+		sCtx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer sCancel()
+		taskID, err := store.Task().CreateFromURL(sCtx, u)
+		if err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("query_text", text).
+				Msg("Failed to create task from text")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Failed to create task from URL"))
+			return
+		}
+
+		cCtx, cCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cCancel()
+		store.Cache.Set(cCtx,
+			fmt.Sprintf("task.%s.title", taskID.String()),
+			title,
+			60*time.Minute)
+		store.Cache.Set(cCtx,
+			fmt.Sprintf("task.%s.contents", taskID.String()),
+			contents,
+			60*time.Minute)
+
+		w.Header().Set("HX-PUSH-URL", fmt.Sprintf("/api/task/%s", taskID.String()))
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mux.HandleFunc("GET /api/v1/articles/{task_id}", func(w http.ResponseWriter, r *http.Request) {
+		global.Logger.Info().
+			Str("path", r.URL.Path).
+			Msg("Received request for articles")
+
+		// Extract task_id from the URL path
+		taskID := r.PathValue("task_id")
+
+		// Validate the task_id format
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := global.Validate().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("task_id", taskID).
+				Msg("Invalid task_id format")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid task_id format"))
+			return
+		}
+
+		// TODO: fetch articles from cache using the task_id
+		// TODO: Simulate failed to fetch
+
+		// Simulate successful fetch
 		buff := bytes.NewBuffer([]byte{})
 		_ = global.Templates.ExecuteTemplate(buff, "ui-content", TestArticle)
 
-		body, _ := url.PathUnescape(string(rawBody))
-		global.Logger.Debug().
-			Str("path", r.URL.Path).
-			Str("body", body).
-			Int("resp_len", buff.Len()).
-			Str("content-type", r.Header.Get("Content-Type")).
-			Msg("Received request for text task")
 		w.WriteHeader(http.StatusOK)
 		w.Write(buff.Bytes())
 	})
 
-	mux.HandleFunc("GET /api/v1/keywords", func(w http.ResponseWriter, r *http.Request) {
-		v, ok := global.Cache.Load(r.Host)
+	mux.HandleFunc("GET /api/v1/keywords/{task_id}", func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.PathValue("task_id")
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := global.Validate().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("task_id", taskID).
+				Msg("Invalid task_id format")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid task_id format"))
+			return
+		}
+
+		v, ok := global.Cache.Load(taskID)
 		if !ok {
 			v = 0
 		}
@@ -108,14 +235,10 @@ func NewRouter() *http.ServeMux {
 			global.Cache.Store(r.Host, c+1)
 			global.Logger.Info().
 				Str("path", r.URL.Path).
-				Str("host", r.Host).
-				Msg("Received request for keywords")
-
-				// Simulate fetching keywords are not yet ready
-				// if rand.IntN(10) < 2 { // 20% chance to simulate failure
-			global.Logger.Error().
-				Str("path", r.URL.Path).
+				Str("task_id", taskID).
+				Int("counter", c+1).
 				Msg("Keywords not ready yet")
+
 			payload, _ := json.Marshal(map[string]any{
 				"is_ready": false,
 			})
@@ -126,19 +249,21 @@ func NewRouter() *http.ServeMux {
 			return
 		}
 
+		// TODO: fetch keywords from cache using the task_id
+
 		// Simulate fetching keywords
 		global.Logger.Info().
 			Str("path", r.URL.Path).
-			Str("host", r.Host).
+			Str("task_id", taskID).
 			Msg("Keywords are ready, returning response")
 		payload, _ := json.Marshal(map[string]any{
 			"is_ready": true,
 			"keywords": []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
 		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(payload)
-		global.Cache.Store(r.Host, 0) // Reset the counter after serving
 		global.Logger.Debug().
 			Str("path", r.URL.Path).
 			Str("host", r.Host).

@@ -174,14 +174,16 @@ func (e TaskStatus) Valid() bool {
 }
 
 type Article struct {
-	ID          int32              `db:"id" json:"id"`
-	Title       string             `db:"title" json:"title"`
-	Url         string             `db:"url" json:"url"`
-	Source      string             `db:"source" json:"source"`
-	Md5         string             `db:"md5" json:"md5"`
-	Party       Party              `db:"party" json:"party"`
-	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID              int32              `db:"id" json:"id"`
+	Title           string             `db:"title" json:"title"`
+	Url             string             `db:"url" json:"url"`
+	Source          string             `db:"source" json:"source"`
+	Md5             string             `db:"md5" json:"md5"`
+	Party           Party              `db:"party" json:"party"`
+	Content         string             `db:"content" json:"content"`
+	ParagraphStarts []int32            `db:"paragraph_starts" json:"paragraph_starts"`
+	PublishedAt     pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type ArticlesKeyword struct {
@@ -190,13 +192,13 @@ type ArticlesKeyword struct {
 }
 
 type Chunk struct {
-	ID        int32              `db:"id" json:"id"`
-	ArticleID int32              `db:"article_id" json:"article_id"`
-	Content   string             `db:"content" json:"content"`
-	Ord       int32              `db:"ord" json:"ord"`
-	StartAt   int32              `db:"start_at" json:"start_at"`
-	EndAt     int32              `db:"end_at" json:"end_at"`
-	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID          int32              `db:"id" json:"id"`
+	ArticleID   int32              `db:"article_id" json:"article_id"`
+	Start       int32              `db:"start" json:"start"`
+	OffsetLeft  int32              `db:"offset_left" json:"offset_left"`
+	OffsetRight int32              `db:"offset_right" json:"offset_right"`
+	End         int32              `db:"end" json:"end"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type Embedding struct {
@@ -225,15 +227,16 @@ type SchemaMigration struct {
 }
 
 type UsersArticle struct {
-	ID          int32              `db:"id" json:"id"`
-	TaskID      uuid.UUID          `db:"task_id" json:"task_id"`
-	Title       string             `db:"title" json:"title"`
-	Url         string             `db:"url" json:"url"`
-	Source      string             `db:"source" json:"source"`
-	Md5         string             `db:"md5" json:"md5"`
-	Party       Party              `db:"party" json:"party"`
-	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID              int32              `db:"id" json:"id"`
+	TaskID          uuid.UUID          `db:"task_id" json:"task_id"`
+	Title           string             `db:"title" json:"title"`
+	Url             string             `db:"url" json:"url"`
+	Source          string             `db:"source" json:"source"`
+	Md5             string             `db:"md5" json:"md5"`
+	Content         string             `db:"content" json:"content"`
+	ParagraphStarts []int32            `db:"paragraph_starts" json:"paragraph_starts"`
+	PublishedAt     pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type UsersArticlesKeyword struct {
@@ -242,13 +245,13 @@ type UsersArticlesKeyword struct {
 }
 
 type UsersChunk struct {
-	ID        int32              `db:"id" json:"id"`
-	ArticleID int32              `db:"article_id" json:"article_id"`
-	Content   string             `db:"content" json:"content"`
-	Ord       int32              `db:"ord" json:"ord"`
-	StartAt   int32              `db:"start_at" json:"start_at"`
-	EndAt     int32              `db:"end_at" json:"end_at"`
-	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID          int32              `db:"id" json:"id"`
+	ArticleID   int32              `db:"article_id" json:"article_id"`
+	Start       int32              `db:"start" json:"start"`
+	OffsetLeft  int32              `db:"offset_left" json:"offset_left"`
+	OffsetRight int32              `db:"offset_right" json:"offset_right"`
+	End         int32              `db:"end" json:"end"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type UsersEmbedding struct {

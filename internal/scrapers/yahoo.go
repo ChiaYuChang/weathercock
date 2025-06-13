@@ -81,7 +81,7 @@ func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 		if err != nil {
 			err := errors.NewWithHTTPStatus(
 				http.StatusInternalServerError,
-				errors.ErrorCodeWebpageParsingError,
+				errors.ECWebpageParsingError,
 				"Failed to create gzip reader",
 				fmt.Sprintf("err: %s", err.Error()),
 				fmt.Sprintf("url: %s", resp.Request.URL.String()),
@@ -112,7 +112,7 @@ func ParseYahooNewsBody(r io.Reader) *YahooNewsParseResult {
 	if err != nil {
 		err := errors.Wrap(err,
 			http.StatusInternalServerError,
-			errors.ErrorCodeWebpageParsingError,
+			errors.ECWebpageParsingError,
 			"Failed to construct goquery tree from HTML, please ensure the HTML is well-formed and valid",
 		)
 		return &YahooNewsParseResult{

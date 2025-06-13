@@ -89,7 +89,7 @@ func ParseKmtOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 
 			return errors.NewWithHTTPStatus(
 				http.StatusInternalServerError,
-				errors.ErrorCodePressReleaseCollectorError,
+				errors.ECPressReleaseCollectorError,
 				"failed to visit seed URL",
 				err.Error())
 		}

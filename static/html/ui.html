@@ -22,29 +22,23 @@
         <div class="container mx-auto max-w-3xl">
             <!-- 輸入 API KEY 與 CX -->
             <section x-data="{ 'open' : true }">
-                <div
-                    class="cursor-pointer bg-indigo-600 px-4 py-3 text-2xl text-white"
-                    @click="open = !open"
-                >
+                <div class="section-header" @click="open = !open">
                     <span>0.</span> 請輸入 Google API 金鑰和搜尋引擎 ID (cx)
                 </div>
                 <div
                     x-show="open"
                     class="px-4 py-8"
                     x-data="{
-                        apikey: '',
-                        cx: '',
+                        apikey: 'fdsfjkldsgeoaerlkj0-12oj3jlsdfigdlkalsk',
+                        cx: '1234567890-123234',
                         apiKeyValid: { isValid: true, errMsg: '', errType: '' },
                         cxValid: { isValid: true, errMsg: '', errType: '' }
                     }"
                     id="api_key-cx-form"
                 >
-                    <div class="rounded-xl bg-white p-6 shadow-lg">
-                        <div class="flex flex-col gap-2 py-2">
-                            <label
-                                for="api_key"
-                                class="pl-2 text-sm text-slate-500"
-                            >
+                    <div class="content-card">
+                        <div class="input-container">
+                            <label for="api_key" class="input-label">
                                 Google API 金鑰
                             </label>
                             <input
@@ -52,21 +46,20 @@
                                 name="api_key"
                                 id="api_key"
                                 x-model="apikey"
-                                class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
-                                :class="apiKeyValid.isValid ? 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500' :'border-red-500 focus:border-red-500 focus:ring-red-500' "
+                                :class="apiKeyValid.isValid ? '' :'border-red-500 focus:border-red-500 focus:ring-red-500' "
                                 placeholder="Google API Key"
                                 required
                                 @input="apiKeyValid = validateApiKey(apikey)"
                                 title="請於 Google Cloud Console 建立的 API 金鑰"
                             />
-                            <p
-                                class="min-h-[1.25rem] text-sm text-red-500"
+                            <p 
+                                class="err-msg"
                                 x-show="apiKeyValid.errMsg"
                                 x-text="apiKeyValid.errMsg"
                             ></p>
                         </div>
-                        <div class="flex flex-col gap-2 py-2">
-                            <label for="cx" class="pl-2 text-sm text-slate-500">
+                        <div class="input-container">
+                            <label for="cx" class="input-label">
                                 Programmable Search Engine ID (cx)
                             </label>
                             <input
@@ -74,15 +67,14 @@
                                 name="cx"
                                 id="cx"
                                 x-model="cx"
-                                class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
-                                :class="cxValid.isValid ? 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500' :'border-red-500 focus:border-red-500 focus:ring-red-500' "
+                                :class="cxValid.isValid ? '' :'border-red-500 focus:border-red-500 focus:ring-red-500' "
                                 placeholder="Programmable Search Engine ID (cx)"
                                 required
                                 @input="cxValid = validateCx(cx)"
                                 title="請於 Google Programmable Search Engine 建立的搜尋引擎 ID"
                             />
                             <p
-                                class="min-h-[1.25rem] text-sm text-red-500"
+                                class="err-msg"
                                 x-show="cxValid.errMsg"
                                 x-text="cxValid.errMsg"
                             ></p>
@@ -93,10 +85,7 @@
 
             <!-- 輸入要比對的新聞 -->
             <section x-data='{"open": false}'>
-                <div
-                    class="my-2 cursor-pointer bg-indigo-600 px-4 py-3 text-2xl text-white"
-                    @click="open = !open"
-                >
+                <div class="section-header" @click="open = !open">
                     <span>1.</span> 輸入新聞網址或內容
                 </div>
                 <div x-show="open" class="px-4 py-8">
@@ -104,10 +93,6 @@
                         id="input-area"
                         x-data="{
                             mode: 'url',
-                            apikey: '',
-                            cx: '',
-                            apiKeyValid: { isValid: true, errMsg: '', errType: '' },
-                            cxValid: { isValid: true, errMsg: '', errType: '' }
                         }"
                     >
                         <div class="mb-4 flex justify-center gap-2">
@@ -126,7 +111,7 @@
                                 貼上文字
                             </button>
                         </div>
-                        <div class="rounded-xl bg-white p-6 shadow-lg">
+                        <div class="content-card">
                             <form
                                 id="url-form"
                                 hx-post="/api/v1/task/url"
@@ -134,45 +119,49 @@
                                 hx-swap="innerHTML"
                                 hx-push-url="/article"
                                 x-show="mode === 'url'"
-                                class="flex flex-col gap-4"
                                 x-data='{
-                            url: "",
-                            valid: {
-                                isValid: true,
-                                errMsg: "",
-                                errType: "",
-                            } 
-                        }'
+                                    url: "https://tw.news.yahoo.com/高齡換照年齡擬下修-73歲藍委-我是受害者-071647696.html",
+                                    valid: {
+                                        isValid: true,
+                                        errMsg: "",
+                                        errType: "",
+                                        
+                                    } 
+                                }'
                             >
-                                <input
-                                    type="text"
-                                    name="query_url"
-                                    id="query_url"
-                                    x-model="url"
-                                    class="focus:ring-opacity-50 grow rounded-lg border-2 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:ring-2"
-                                    :class="valid.errType === 'ERR_NOT_SUPPORTED_URL' ? 
-                                'border-red-500 focus:border-red-500 focus:ring-red-500' : 
-                                'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
-                                    placeholder="tw.news.yahoo.com"
-                                    required
-                                    @input="valid=validateUrl(url)"
-                                    title="請輸入 Yahoo 新聞網址"
-                                />
-                                <p
-                                    id="query_url_err_msg"
-                                    x-show="valid.errMsg"
-                                    x-text="valid.errMsg"
-                                    x-transition
-                                    class="min-h-[1.25rem] text-sm text-red-500"
-                                ></p>
-                                <button
-                                    type="submit"
-                                    class="focus:ring-opacity-50 mt-3 rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none md:mt-0"
-                                    :disabled="!valid.isValid"
-                                    :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
-                                >
-                                    搜尋
-                                </button>
+                                <div class="input-container">
+                                    <label for="query_url">
+                                        請輸入 Yahoo 新聞網址
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="query_url"
+                                        id="query_url"
+                                        x-model="url"
+                                        :class="valid.errType === 'ERR_NOT_SUPPORTED_URL' ? 
+                                    'border-red-500 focus:border-red-500 focus:ring-red-500' : 
+                                    'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
+                                        placeholder="tw.news.yahoo.com"
+                                        required
+                                        @input="valid=validateUrl(url)"
+                                        title="請輸入 Yahoo 新聞網址"
+                                    />
+                                    <p
+                                        id="query_url_err_msg"
+                                        class="err-msg"
+                                        x-show="valid.errMsg"
+                                        x-text="valid.errMsg"
+                                        x-transition
+                                    ></p>
+                                    <button
+                                        type="submit"
+                                        class="focus:ring-opacity-50 mt-3 rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none md:mt-0"
+                                        :disabled="!valid.isValid"
+                                        :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
+                                    >
+                                        搜尋
+                                    </button>
+                                </div>
                             </form>
                             <form
                                 id="query_text_form"
@@ -196,45 +185,48 @@
                                 errType: "",
                             }
                         }'
-                                class="flex flex-col gap-4"
                             >
-                                <textarea
-                                    name="query_text"
-                                    id="query_text"
-                                    rows="5"
-                                    x-model="content"
-                                    class="focus:ring-opacity-50 rounded-lg border-2 border-slate-300 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                                    placeholder="請輸入新聞內容或貼上文字"
-                                    @input="valid=validateQueryText(content)"
-                                    required
-                                ></textarea>
-                                <p
-                                    id="query_text_err_msg"
-                                    x-show="valid.errMsg"
-                                    x-text="valid.errMsg"
-                                    x-transition
-                                    class="min-h-[1.25rem] text-sm text-red-500"
-                                ></p>
-                                <div class="flex flex-row gap-4">
-                                    <button
-                                        type="submit"
-                                        class="focus:ring-opacity-50 basis-lg rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                        :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
-                                        :disabled="!valid.isValid"
-                                        title="送出輸入內容"
-                                    >
-                                        送出
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="focus:ring-opacity-50 min-w-36 grow rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                        :class="!content ? 'opacity-50 cursor-not-allowed' : ''"
-                                        :disabled="!content"
-                                        title="清除輸入內容"
-                                        @click="cleanup()"
-                                    >
-                                        清除
-                                    </button>
+                                <div class="input-container">
+                                    <textarea
+                                        name="query_text"
+                                        id="query_text"
+                                        rows="5"
+                                        x-model="content"
+                                        placeholder="請輸入新聞內容或貼上文字。若有標題，請將標題放在第一行，以#開頭並與內容以空行分隔；若無標題，請直接輸入內容，系統會自動生成標題。"
+                                        :class="valid.errType === 'ERR_CONTENT_LENGTH' ? 
+                                    'border-red-500 focus:border-red-500 focus:ring-red-500' : 
+                                    'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'"
+                                        @input="valid=validateQueryText(content)"
+                                        required
+                                    ></textarea>
+                                    <p
+                                        id="query_text_err_msg"
+                                        x-show="valid.errMsg"
+                                        x-text="valid.errMsg"
+                                        x-transition
+                                        class="min-h-[1.25rem] text-sm text-red-500"
+                                    ></p>
+                                    <div class="flex flex-row gap-4">
+                                        <button
+                                            type="submit"
+                                            class="focus:ring-opacity-50 basis-lg rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            :class="!valid.isValid ? 'opacity-50 cursor-not-allowed' : ''"
+                                            :disabled="!valid.isValid"
+                                            title="送出輸入內容"
+                                        >
+                                            送出
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="focus:ring-opacity-50 min-w-36 grow rounded-lg bg-indigo-600 px-6 py-3 text-lg font-semibold text-white shadow-md transition duration-150 ease-in-out hover:bg-indigo-700 hover:shadow-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            :class="!content ? 'opacity-50 cursor-not-allowed' : ''"
+                                            :disabled="!content"
+                                            title="清除輸入內容"
+                                            @click="cleanup()"
+                                        >
+                                            清除
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -250,7 +242,13 @@
                 >
                     <span>2.</span> 預覽新聞
                 </div>
-                <div id="preview-area" class="px-4 py-8"></div>
+                <div x-show="open" class="px-4 py-8">
+                    <div class="rounded-xl bg-white p-6 shadow-lg">
+                        <div id="preview-area" class="px-4 py-8 text-slate-400">
+                            請於上方輸入新聞網址或內容，然後點擊「搜尋」按鈕以預覽新聞。
+                        </div>
+                    </div>
+                </div>
             </section>
         </div>
         <footer class="mt-16 py-8 text-center text-sm text-slate-500">
@@ -320,14 +318,16 @@
         // validate query_url
         // validate query_text
         function validateQueryText(content) {
-            if (content.length < 10 || content.length > 5000) {
+            let lb = 10
+            let ub = 3000
+            if (content.length < lb || content.length > ub) {
                 console.warn(
                     'Content length validation failed:',
                     content.length
                 )
                 return {
                     isValid: false,
-                    errMsg: '內容長度必須介於 10 到 5000 字元之間。',
+                    errMsg: `內容長度必須介於 ${lb} 到 ${ub} 字元之間。`,
                     errType: 'ERR_CONTENT_LENGTH',
                 }
             }

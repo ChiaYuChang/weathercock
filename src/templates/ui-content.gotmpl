@@ -68,15 +68,62 @@
             }'
             class="flex flex-wrap gap-2"
         >
-        <div x-show="!is_ready">
-            <span class="text-slate-500">載入中...</span>
+            <div x-show="!is_ready">
+                <span class="text-slate-500">載入中...</span>
+            </div>
+            <div x-show="is_ready" class="flex flex-wrap contetn-start gap-2">  
+                <template 
+                    x-for="keyword in keywords"
+                    class="inline-block">
+                    <span x-text="keyword" class="rounded-4xl bg-indigo-200 px-2 text-base text-slate-800"></span>
+                </template>
+            <div>
         </div>
-        <div x-show="is_ready" class="flex flex-wrap contetn-start gap-2">  
-        <template x-for="keyword in keywords" class="inline-block">
-                <span x-text="keyword" class="rounded-4xl bg-indigo-200 px-2 text-base text-slate-800"></span>
-        </template>
-        <div>
-        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ define "ui-content-v2" }}
+<div 
+    class="space-y-6"
+    x-data="{
+        'articleReady': false,
+        'keywordsReady': false,
+        loading() => {
+            return !this.articleReady || !this.keywordsReady;
+        }
+    }"
+    id="task-status"
+>
+    <!-- Polling article content -->
+    <div
+        id="article-content"
+        class="cursor-progress"
+        hx-get="/api/v1/article/{{ .taskID }}"
+        hx-trigger="load, every 2s"
+        hx-swap="outerHTML"
+        hx-target="this"
+        @htmx-after-swap="articleReady = true"
+    >
+        <p class="text-slate-400">正在抓取新聞內文...</p>
+    </div>
+
+    <!-- Polling keywords -->
+    <div
+        id="article-keywords"
+        class="cursor-progress"
+        hx-get="/api/v1/keywords/{{ .taskID }}"
+        hx-trigger="load, every 2s"
+        hx-swap="outerHTML"
+        hx-target="this"
+        @htmx-after-swap="keywordsReady = true"
+    >
+        <p class="text-slate-400">正在分析關鍵字...</p>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div x-show="loading()" class="text-center text-blue-500">
+        <span class="animate-pulse">資料處理中，請稍候...</span>
     </div>
 </div>
 {{ end }}

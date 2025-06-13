@@ -23,6 +23,10 @@ tasks:
     desc: Run the API server
     cmds:
       - go run ./cmd/api/main.go
+  go-build-api:
+    desc: Build the API server binary
+    cmds:
+      - go build -o ./tmp/api ./cmd/api/main.go
   go-run-worker:
     desc: Run the worker server
     cmds:

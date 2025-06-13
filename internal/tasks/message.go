@@ -8,6 +8,7 @@ import (
 const (
 	Prefix          = "task."
 	Create          = "task.create"
+	GenerateTitle   = "task.generate_title"
 	ExtractKeywords = "task.extract_keywords"
 	Embedding       = "task.embedding"
 	Done            = "task.done"

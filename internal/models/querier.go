@@ -11,7 +11,13 @@ import (
 )
 
 type Querier interface {
+	CreateArticle(ctx context.Context, arg CreateArticleParams) (int32, error)
+	CreateChunk(ctx context.Context, arg CreateChunkParams) (int32, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) (uuid.UUID, error)
+	CreateUserArticle(ctx context.Context, arg CreateUserArticleParams) (int32, error)
+	CreateUserChunk(ctx context.Context, arg CreateUserChunkParams) (int32, error)
+	ExtractChunks(ctx context.Context, id int32) ([]ExtractChunksRow, error)
+	ExtractUserChunks(ctx context.Context, id int32) ([]ExtractUserChunksRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

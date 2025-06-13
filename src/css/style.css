@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tailwindcss' important;
 
 @font-face {
     font-family: 'GenKiGothic2TW';
@@ -38,6 +39,16 @@
 @theme {
     --font-serif: 'GenWanMin2TW', 'Inter', sans-serif;
     --font-sans: 'GenKiGothic2TW', 'Inter', sans-serif;
+
+    --color-primary: oklch(51.1% 0.262 276.966);
+    --color-primary-blur: oklch(58.5% 0.233 277.117);
+
+    --color-warning:  oklch(63.7% 0.237 25.331);
+    --color-warning-blur: oklch(88.5% 0.062 18.334);
+
+    --color-typo-light: oklch(100% 0 0);
+    --color-typo-dark: oklch(37.2% 0.044 257.287);
+    --color-typo-blur: oklch(55.4% 0.046 257.417);
 }
 
 h2 {
@@ -59,6 +70,10 @@ a {
     @apply h-5 w-5 text-slate-400;
 }
 
+.section-header {
+    @apply my-2 cursor-pointer bg-primary px-4 py-3 text-2xl text-white;
+}
+
 .content {
     @apply max-w-none text-lg leading-relaxed text-slate-700;
 }
@@ -67,7 +82,34 @@ a {
     @apply mb-4;
 }
 
+.content-card {
+    @apply rounded-xl bg-white p-6 shadow-lg;
+}
+
+@layer components {
+    .input-container {
+        @apply flex flex-col gap-2 py-2;
+    }
+
+    .input-container > label {
+        @apply pl-2 text-sm text-slate-500;
+    }
+
+    .input-container > input,
+    .input-container > textarea {
+        flex-grow: 1;
+        @apply rounded-lg border-2 border-slate-300 px-4 py-3 text-lg placeholder-slate-400 shadow-sm transition duration-150 ease-in-out focus:bg-primary-blur focus:ring-2 focus:ring-primary-blur;
+    }
+
+    .input-container > .err-msg {
+        @apply min-h-[1.25rem] text-sm text-warning;
+    }
+}
+
+.warning {
+    @apply border-warning focus:border-warning focus:ring-warning;
+}
+
 .keyword {
     @apply rounded-full bg-indigo-100 py-1.5 pr-2 pl-4 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-200;
 }
-

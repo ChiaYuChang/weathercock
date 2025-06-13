@@ -101,51 +101,6 @@ $_$;
 ALTER FUNCTION public.avg_embedding(aid integer, mid integer) OWNER TO postgres;
 
 --
--- Name: concat_article_chunks(integer); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.concat_article_chunks(aid integer) RETURNS text
-    LANGUAGE sql
-    AS $_$
-SELECT STRING_AGG(
-        substring(
-            c.content
-            FROM c.start_at + 1 FOR c.end_at - c.start_at
-        ),
-        '\n'
-        ORDER BY c.ord
-    )
-FROM chunks c
-WHERE c.article_id = $1
-    AND character_length(c.content) > 0;
-$_$;
-
-
-ALTER FUNCTION public.concat_article_chunks(aid integer) OWNER TO postgres;
-
---
--- Name: none_overlap_chunk(integer); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.none_overlap_chunk(aid integer) RETURNS TABLE(chunk_id integer, ord integer, content text)
-    LANGUAGE sql
-    AS $_$
-SELECT c.id AS chunk_id,
-    c.ord AS ord,
-    substring(
-        c.content
-        FROM c.start_at + 1 FOR c.end_at - c.start_at
-    ) AS content
-FROM chunks c
-WHERE c.article_id = $1
-    AND character_length(c.content) > 0
-ORDER BY c.ord;
-$_$;
-
-
-ALTER FUNCTION public.none_overlap_chunk(aid integer) OWNER TO postgres;
-
---
 -- Name: avg_embedding(integer, integer); Type: FUNCTION; Schema: users; Owner: postgres
 --
 
@@ -165,51 +120,6 @@ $_$;
 
 ALTER FUNCTION users.avg_embedding(aid integer, mid integer) OWNER TO postgres;
 
---
--- Name: concat_article_chunks(integer); Type: FUNCTION; Schema: users; Owner: postgres
---
-
-CREATE FUNCTION users.concat_article_chunks(aid integer) RETURNS text
-    LANGUAGE sql
-    AS $_$
-SELECT STRING_AGG(
-        substring(
-            c.content
-            FROM c.start_at + 1 FOR c.end_at - c.start_at
-        ),
-        '\n'
-        ORDER BY c.ord
-    )
-FROM users.chunks c
-WHERE c.article_id = $1
-    AND character_length(c.content) > 0;
-$_$;
-
-
-ALTER FUNCTION users.concat_article_chunks(aid integer) OWNER TO postgres;
-
---
--- Name: none_overlap_chunk(integer); Type: FUNCTION; Schema: users; Owner: postgres
---
-
-CREATE FUNCTION users.none_overlap_chunk(aid integer) RETURNS TABLE(chunk_id integer, ord integer, content text)
-    LANGUAGE sql
-    AS $_$
-SELECT c.id AS chunk_id,
-    c.ord AS ord,
-    substring(
-        c.content
-        FROM c.start_at + 1 FOR c.end_at - c.start_at
-    ) AS content
-FROM users.chunks c
-WHERE c.article_id = $1
-    AND character_length(c.content) > 0
-ORDER BY c.ord;
-$_$;
-
-
-ALTER FUNCTION users.none_overlap_chunk(aid integer) OWNER TO postgres;
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -225,6 +135,8 @@ CREATE TABLE public.articles (
     source text NOT NULL,
     md5 text NOT NULL,
     party public.party DEFAULT 'none'::public.party NOT NULL,
+    content text NOT NULL,
+    paragraph_starts integer[] DEFAULT '{}'::integer[] NOT NULL,
     published_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
@@ -273,10 +185,10 @@ ALTER TABLE public.articles_keywords OWNER TO postgres;
 CREATE TABLE public.chunks (
     id integer NOT NULL,
     article_id integer NOT NULL,
-    content text NOT NULL,
-    ord integer NOT NULL,
-    start_at integer NOT NULL,
-    end_at integer NOT NULL,
+    start integer NOT NULL,
+    offset_left integer NOT NULL,
+    offset_right integer NOT NULL,
+    "end" integer NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -431,11 +343,12 @@ ALTER TABLE public.schema_migrations OWNER TO postgres;
 CREATE TABLE users.articles (
     id integer NOT NULL,
     task_id uuid NOT NULL,
-    title text NOT NULL,
-    url text NOT NULL,
-    source text NOT NULL,
+    title text DEFAULT 'undefined'::text NOT NULL,
+    url text DEFAULT 'local'::text NOT NULL,
+    source text DEFAULT 'user'::text NOT NULL,
     md5 text NOT NULL,
-    party public.party DEFAULT 'none'::public.party NOT NULL,
+    content text DEFAULT ''::text NOT NULL,
+    paragraph_starts integer[] DEFAULT '{}'::integer[] NOT NULL,
     published_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
@@ -484,10 +397,10 @@ ALTER TABLE users.articles_keywords OWNER TO postgres;
 CREATE TABLE users.chunks (
     id integer NOT NULL,
     article_id integer NOT NULL,
-    content text NOT NULL,
-    ord integer NOT NULL,
-    start_at integer NOT NULL,
-    end_at integer NOT NULL,
+    start integer NOT NULL,
+    offset_left integer NOT NULL,
+    offset_right integer NOT NULL,
+    "end" integer NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -682,11 +595,11 @@ ALTER TABLE ONLY public.articles
 
 
 --
--- Name: chunks chunks_article_id_start_at_end_at_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: chunks chunks_article_id_start_end_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.chunks
-    ADD CONSTRAINT chunks_article_id_start_at_end_at_key UNIQUE (article_id, start_at, end_at);
+    ADD CONSTRAINT chunks_article_id_start_end_key UNIQUE (article_id, start, "end");
 
 
 --
@@ -778,11 +691,11 @@ ALTER TABLE ONLY users.articles
 
 
 --
--- Name: chunks chunks_article_id_start_at_end_at_key; Type: CONSTRAINT; Schema: users; Owner: postgres
+-- Name: chunks chunks_article_id_start_end_key; Type: CONSTRAINT; Schema: users; Owner: postgres
 --
 
 ALTER TABLE ONLY users.chunks
-    ADD CONSTRAINT chunks_article_id_start_at_end_at_key UNIQUE (article_id, start_at, end_at);
+    ADD CONSTRAINT chunks_article_id_start_end_key UNIQUE (article_id, start, "end");
 
 
 --

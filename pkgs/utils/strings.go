@@ -95,3 +95,28 @@ func ConvertFullwidthToASCII(s string) string {
 	}
 	return string(result)
 }
+
+func Join(text []string) (string, []int) {
+	builder := strings.Builder{}
+	cuts := make([]int, 0, len(text))
+	for _, t := range text {
+		builder.WriteString(t)
+		cuts = append(cuts, builder.Len())
+	}
+	return builder.String(), cuts
+}
+
+func Split(text string, cuts []int) []string {
+	if len(cuts) == 0 {
+		return []string{text}
+	}
+	result := make([]string, 0, len(cuts))
+	head := 0
+	for _, tail := range cuts {
+		if tail > head {
+			result = append(result, text[head:tail])
+		}
+		head = tail
+	}
+	return result
+}

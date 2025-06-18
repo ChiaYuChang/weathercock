@@ -174,16 +174,16 @@ func (e TaskStatus) Valid() bool {
 }
 
 type Article struct {
-	ID              int32              `db:"id" json:"id"`
-	Title           string             `db:"title" json:"title"`
-	Url             string             `db:"url" json:"url"`
-	Source          string             `db:"source" json:"source"`
-	Md5             string             `db:"md5" json:"md5"`
-	Party           Party              `db:"party" json:"party"`
-	Content         string             `db:"content" json:"content"`
-	ParagraphStarts []int32            `db:"paragraph_starts" json:"paragraph_starts"`
-	PublishedAt     pgtype.Timestamptz `db:"published_at" json:"published_at"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID          int32              `db:"id" json:"id"`
+	Title       string             `db:"title" json:"title"`
+	Url         string             `db:"url" json:"url"`
+	Source      string             `db:"source" json:"source"`
+	Md5         string             `db:"md5" json:"md5"`
+	Party       Party              `db:"party" json:"party"`
+	Content     string             `db:"content" json:"content"`
+	Cuts        []int32            `db:"cuts" json:"cuts"`
+	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type ArticlesKeyword struct {
@@ -227,16 +227,16 @@ type SchemaMigration struct {
 }
 
 type UsersArticle struct {
-	ID              int32              `db:"id" json:"id"`
-	TaskID          uuid.UUID          `db:"task_id" json:"task_id"`
-	Title           string             `db:"title" json:"title"`
-	Url             string             `db:"url" json:"url"`
-	Source          string             `db:"source" json:"source"`
-	Md5             string             `db:"md5" json:"md5"`
-	Content         string             `db:"content" json:"content"`
-	ParagraphStarts []int32            `db:"paragraph_starts" json:"paragraph_starts"`
-	PublishedAt     pgtype.Timestamptz `db:"published_at" json:"published_at"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID          int32              `db:"id" json:"id"`
+	TaskID      uuid.UUID          `db:"task_id" json:"task_id"`
+	Title       string             `db:"title" json:"title"`
+	Url         string             `db:"url" json:"url"`
+	Source      string             `db:"source" json:"source"`
+	Md5         string             `db:"md5" json:"md5"`
+	Content     string             `db:"content" json:"content"`
+	Cuts        []int32            `db:"cuts" json:"cuts"`
+	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
 type UsersArticlesKeyword struct {

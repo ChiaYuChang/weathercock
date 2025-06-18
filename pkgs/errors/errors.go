@@ -40,6 +40,7 @@ const (
 	ECNoRows
 	ECIntegrityConstrainViolation
 	ECTransactionRollback
+	ECDatabaseTypeConversionError
 )
 
 type Error struct {
@@ -58,6 +59,7 @@ var (
 	ErrNotFound                      = NewWithHTTPStatus(http.StatusNotFound, ECNoRows, "no record found")
 	ErrDBIntegrityConstrainViolation = NewWithHTTPStatus(http.StatusConflict, ECIntegrityConstrainViolation, "integrity constraint violation")
 	ErrDBTransactionRollback         = NewWithHTTPStatus(http.StatusInternalServerError, ECTransactionRollback, "transaction rollback error")
+	ErrDBTypeConversionError         = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseTypeConversionError, "database type conversion error")
 )
 
 func NewWithHTTPStatus(status, code int, message string, details ...string) *Error {

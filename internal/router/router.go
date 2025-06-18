@@ -148,7 +148,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		// TODO: insert task into database, database should return a task ID (uuid)
 		sCtx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer sCancel()
-		taskID, err := store.Task().CreateFromURL(sCtx, u)
+		taskID, err := store.Task().CreateFromText(sCtx, text)
 		if err != nil {
 			global.Logger.Error().
 				Err(err).

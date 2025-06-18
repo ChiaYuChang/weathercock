@@ -20,7 +20,7 @@ CREATE TABLE articles (
     md5              TEXT        UNIQUE NOT NULL,
     party            party       NOT NULL DEFAULT 'none',
     content          TEXT        NOT NULL,        -- full article text
-    paragraph_starts INTEGER[]   NOT NULL DEFAULT '{}',
+    cuts             INTEGER[]   NOT NULL DEFAULT '{}',
     published_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -49,16 +49,16 @@ CREATE TABLE embeddings (
 
 
 CREATE TABLE users.articles (
-    id               SERIAL      PRIMARY KEY,
-    task_id          UUID        NOT NULL REFERENCES users.tasks(task_id) ON DELETE CASCADE,
-    title            TEXT        NOT NULL DEFAULT 'undefined',
-    "url"            TEXT        NOT NULL DEFAULT 'local',
-    source           TEXT        NOT NULL DEFAULT 'user',  -- 聯合報, 自由時報, TVBS, 使用者輸入, etc.
-    md5              TEXT        UNIQUE NOT NULL,
-    content          TEXT        NOT NULL DEFAULT '',       -- full article text
-    paragraph_starts INTEGER[]   NOT NULL DEFAULT '{}',
-    published_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_at       TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    id            SERIAL      PRIMARY KEY,
+    task_id       UUID        NOT NULL REFERENCES users.tasks(task_id) ON DELETE CASCADE,
+    title         TEXT        NOT NULL DEFAULT 'undefined',
+    "url"         TEXT        NOT NULL DEFAULT 'local',
+    source        TEXT        NOT NULL DEFAULT 'user',  -- 聯合報, 自由時報, TVBS, 使用者輸入, etc.
+    md5           TEXT        UNIQUE NOT NULL,
+    content       TEXT        NOT NULL DEFAULT '',       -- full article text
+    cuts          INTEGER[]   NOT NULL DEFAULT '{}',
+    published_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 

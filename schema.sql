@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 17.4 (Debian 17.4-1.pgdg120+2)
--- Dumped by pg_dump version 17.4
+-- Dumped by pg_dump version 17.5
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -86,16 +86,19 @@ ALTER TYPE public.task_status OWNER TO postgres;
 
 CREATE FUNCTION public.avg_embedding(aid integer, mid integer) RETURNS public.vector
     LANGUAGE sql
-    AS $_$
-SELECT CASE
+    AS $$
+SELECT
+    CASE
         WHEN COUNT(*) = 0 THEN NULL
         ELSE AVG(vector)
-    END
-FROM embeddings
-WHERE article_id = $1
-    AND model_id = $2
-    AND vector IS NOT NULL;
-$_$;
+    END AS vector
+FROM
+    embeddings AS e
+WHERE
+    e.article_id = aid
+    AND e.model_id = mid
+    AND e.vector IS NOT NULL;
+$$;
 
 
 ALTER FUNCTION public.avg_embedding(aid integer, mid integer) OWNER TO postgres;
@@ -106,16 +109,17 @@ ALTER FUNCTION public.avg_embedding(aid integer, mid integer) OWNER TO postgres;
 
 CREATE FUNCTION users.avg_embedding(aid integer, mid integer) RETURNS public.vector
     LANGUAGE sql
-    AS $_$
+    AS $$
 SELECT CASE
         WHEN COUNT(*) = 0 THEN NULL
         ELSE AVG(vector)
     END
-FROM users.embeddings
-WHERE article_id = $1
-    AND model_id = $2
+FROM users.embeddings AS e
+WHERE
+    e.article_id = aid
+    AND e.model_id = mid
     AND vector IS NOT NULL;
-$_$;
+$$;
 
 
 ALTER FUNCTION users.avg_embedding(aid integer, mid integer) OWNER TO postgres;
@@ -136,7 +140,7 @@ CREATE TABLE public.articles (
     md5 text NOT NULL,
     party public.party DEFAULT 'none'::public.party NOT NULL,
     content text NOT NULL,
-    paragraph_starts integer[] DEFAULT '{}'::integer[] NOT NULL,
+    cuts integer[] DEFAULT '{}'::integer[] NOT NULL,
     published_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
@@ -348,7 +352,7 @@ CREATE TABLE users.articles (
     source text DEFAULT 'user'::text NOT NULL,
     md5 text NOT NULL,
     content text DEFAULT ''::text NOT NULL,
-    paragraph_starts integer[] DEFAULT '{}'::integer[] NOT NULL,
+    cuts integer[] DEFAULT '{}'::integer[] NOT NULL,
     published_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ChiaYuChang/weathercock/internal/global"
 	"github.com/ChiaYuChang/weathercock/internal/router"
+	"github.com/ChiaYuChang/weathercock/internal/storage"
 )
 
 func main() {
@@ -26,7 +27,7 @@ func main() {
 		Msg("Hello, World! This is a simple API server.")
 
 	bind := fmt.Sprintf("%s:%d", host, port)
-	mux := router.NewRouter()
+	mux := router.NewRouter(storage.Storage{})
 
 	err := http.ListenAndServe(bind, mux)
 	if err != nil {

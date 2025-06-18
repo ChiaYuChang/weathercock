@@ -11,10 +11,10 @@ import (
 // |--------------| 0.5 overlap                |--------------| 0.5 overlap
 // Start          OffsetLeft                   OffsetRight    Stop
 type ChunkOffsets struct {
-	Start       int // chunk 在全文的起始 index
-	OffsetLeft  int // unique content 在 chunk 內的起始 index
-	OffsetRight int // unique content 在 chunk 內的結束 index
-	End         int // chunk 在全文的結束 index
+	Start       int32 // chunk 在全文的起始 index
+	OffsetLeft  int32 // unique content 在 chunk 內的起始 index
+	OffsetRight int32 // unique content 在 chunk 內的結束 index
+	End         int32 // chunk 在全文的結束 index
 }
 
 // ChunckOffsets splits a single text into chunks and returns offsets for each chunk in
@@ -38,10 +38,10 @@ func ChunckOffsets(text string, size, overlap int) ([]ChunkOffsets, error) {
 		offsetLeft := uniqueStart - start
 		offsetRight := uniqueEnd - start
 		offsets = append(offsets, ChunkOffsets{
-			Start:       start,
-			OffsetLeft:  offsetLeft,
-			OffsetRight: offsetRight,
-			End:         end,
+			Start:       int32(start),
+			OffsetLeft:  int32(offsetLeft),
+			OffsetRight: int32(offsetRight),
+			End:         int32(end),
 		})
 		if uniqueEnd >= textLen {
 			break
@@ -83,10 +83,10 @@ func ChunckParagraphsOffsets(paragraphs []string, size, overlap int) ([]ChunkOff
 			offsetLeft := uniqueStartInPara - startInPara
 			offsetRight := uniqueEndInPara - startInPara
 			offsets = append(offsets, ChunkOffsets{
-				Start:       start,
-				OffsetLeft:  offsetLeft,
-				OffsetRight: offsetRight,
-				End:         end,
+				Start:       int32(start),
+				OffsetLeft:  int32(offsetLeft),
+				OffsetRight: int32(offsetRight),
+				End:         int32(end),
 			})
 			if uniqueEndInPara >= paraLen {
 				break

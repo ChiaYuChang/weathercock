@@ -1,4 +1,4 @@
--- name: CreateUserArticle :one
+-- name: InsertUserArticle :one
 INSERT INTO users.articles (
     task_id,
     title,
@@ -6,7 +6,7 @@ INSERT INTO users.articles (
     source,
     md5,
     content,
-    paragraph_starts,
+    cuts,
     published_at
 ) VALUES (
     $1,
@@ -19,7 +19,7 @@ INSERT INTO users.articles (
     $8
 ) RETURNING id;
 
--- name: CreateUserChunk :one
+-- name: InsertUserChunk :one
 INSERT INTO users.chunks (
     article_id,
     "start",
@@ -33,6 +33,24 @@ INSERT INTO users.chunks (
     $4,
     $5
 ) RETURNING id;
+
+-- name: InsertUserChunksBatch :batchexec
+INSERT INTO users.chunks (
+    article_id,
+    "start",
+    offset_left,
+    offset_right,
+    "end"
+) VALUES (
+    $1, 
+    $2,
+    $3,
+    $4,
+    $5
+) 
+ON CONFLICT DO NOTHING
+RETURNING id;
+
 
 -- name: ExtractUserChunks :many
 SELECT
@@ -54,7 +72,32 @@ WHERE
 ORDER BY
     c."start";
 
--- name: CreateArticle :one
+-- name: GetUserArticleByID :one
+SELECT
+    *
+FROM
+    users.articles
+WHERE
+    id = $1;
+
+-- name: GetUserArticleByTaskID :one
+SELECT
+    *
+FROM
+    users.articles
+WHERE
+    task_id = $1;
+
+-- name: GetUserArticleByMD5 :one
+SELECT
+    *
+FROM
+    users.articles
+WHERE
+    md5 = $1;
+
+
+-- name: InsertArticle :one
 INSERT INTO articles (
     title,
     "url",
@@ -62,7 +105,7 @@ INSERT INTO articles (
     md5,
     party,
     content,
-    paragraph_starts,
+    cuts,
     published_at
 ) VALUES (
     $1,
@@ -75,7 +118,58 @@ INSERT INTO articles (
     $8
 ) RETURNING id;
 
--- name: CreateChunk :one
+-- name: GetArticleByID :one
+SELECT
+    *
+FROM
+    articles
+WHERE
+    id = $1;
+
+-- name: GetArticleByMD5 :one
+SELECT
+    *
+FROM
+    articles
+WHERE
+    md5 = $1;
+
+-- name: GetArticleByURL :one
+SELECT
+    *
+FROM
+    articles
+WHERE
+    "url" = $1
+ORDER BY
+    published_at DESC
+LIMIT 1;
+
+-- name: GetArticleWithinTimeInterval :many
+SELECT
+    *
+FROM
+    articles
+WHERE
+    published_at BETWEEN sqlc.arg('start') AND sqlc.arg('end')
+ORDER BY
+    published_at DESC
+LIMIT
+    sqlc.arg('limit')::integer;
+
+-- name: GetArticlesInPastKDays :many
+SELECT
+    *
+FROM
+    articles
+WHERE
+    published_at >= NOW() - INTERVAL '1 day' * sqlc.arg(k)::integer
+ORDER BY
+    published_at DESC
+LIMIT 
+    sqlc.arg('limit')::integer;
+
+-- name: InsertChunk :one
 INSERT INTO chunks (
     article_id,
     "start",
@@ -89,6 +183,23 @@ INSERT INTO chunks (
     $4,
     $5
 ) RETURNING id;
+
+-- name: InsertChunksBatch :batchexec
+INSERT INTO users.chunks (
+    article_id,
+    "start",
+    offset_left,
+    offset_right,
+    "end"
+) VALUES (
+    $1, 
+    $2,
+    $3,
+    $4,
+    $5
+) 
+ON CONFLICT DO NOTHING
+RETURNING id;
 
 -- name: ExtractChunks :many
 SELECT

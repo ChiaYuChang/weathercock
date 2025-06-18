@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/models"
 	"github.com/google/uuid"
@@ -28,4 +29,16 @@ func (t Tasks) CreateFromText(ctx context.Context, text string) (uuid.UUID, erro
 		OriginalInput: text,
 	})
 	return uid, handlePgxErr(err)
+}
+
+type UserTasks struct {
+	DB models.Querier
+}
+
+func (s UserTasks) Insert(ctx context.Context, taskID uuid.UUID, name string, createdAt time.Time) error {
+	panic("not implemented")
+}
+
+func (s UserTasks) SelectByID(ctx context.Context, taskID uuid.UUID) (string, time.Time, error) {
+	panic("not implemented")
 }

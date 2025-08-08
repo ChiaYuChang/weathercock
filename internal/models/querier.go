@@ -12,28 +12,41 @@ import (
 
 type Querier interface {
 	CreateTask(ctx context.Context, arg CreateTaskParams) (uuid.UUID, error)
+	DeleteModelByID(ctx context.Context, id int32) error
 	ExtractChunks(ctx context.Context, id int32) ([]ExtractChunksRow, error)
-	ExtractUserChunks(ctx context.Context, id int32) ([]ExtractUserChunksRow, error)
+	ExtractUsersChunks(ctx context.Context, id int32) ([]ExtractUsersChunksRow, error)
 	GetArticleByID(ctx context.Context, id int32) (Article, error)
 	GetArticleByMD5(ctx context.Context, md5 string) (Article, error)
 	GetArticleByURL(ctx context.Context, url string) (Article, error)
 	GetArticleWithinTimeInterval(ctx context.Context, arg GetArticleWithinTimeIntervalParams) ([]Article, error)
 	GetArticlesInPastKDays(ctx context.Context, arg GetArticlesInPastKDaysParams) ([]Article, error)
 	GetAverageEmbeddingByArticleIDs(ctx context.Context, arg GetAverageEmbeddingByArticleIDsParams) (GetAverageEmbeddingByArticleIDsRow, error)
+	GetAverageUsersEmbeddingByArticleIDs(ctx context.Context, arg GetAverageUsersEmbeddingByArticleIDsParams) (GetAverageUsersEmbeddingByArticleIDsRow, error)
 	GetKNNEmbeddingsByCosineSimilarity(ctx context.Context, arg GetKNNEmbeddingsByCosineSimilarityParams) ([]GetKNNEmbeddingsByCosineSimilarityRow, error)
 	GetKNNEmbeddingsByInnerProduct(ctx context.Context, arg GetKNNEmbeddingsByInnerProductParams) ([]GetKNNEmbeddingsByInnerProductRow, error)
 	GetKNNEmbeddingsByL2Distance(ctx context.Context, arg GetKNNEmbeddingsByL2DistanceParams) ([]GetKNNEmbeddingsByL2DistanceRow, error)
-	GetUserArticleByID(ctx context.Context, id int32) (UsersArticle, error)
-	GetUserArticleByMD5(ctx context.Context, md5 string) (UsersArticle, error)
-	GetUserArticleByTaskID(ctx context.Context, taskID uuid.UUID) (UsersArticle, error)
+	GetKNNUsersEmbeddingsByCosineSimilarity(ctx context.Context, arg GetKNNUsersEmbeddingsByCosineSimilarityParams) ([]GetKNNUsersEmbeddingsByCosineSimilarityRow, error)
+	GetKNNUsersEmbeddingsByInnerProduct(ctx context.Context, arg GetKNNUsersEmbeddingsByInnerProductParams) ([]GetKNNUsersEmbeddingsByInnerProductRow, error)
+	GetKNNUsersEmbeddingsByL2Distance(ctx context.Context, arg GetKNNUsersEmbeddingsByL2DistanceParams) ([]GetKNNUsersEmbeddingsByL2DistanceRow, error)
+	GetModelByID(ctx context.Context, id int32) (GetModelByIDRow, error)
+	GetModelByName(ctx context.Context, name string) (GetModelByNameRow, error)
+	GetUsersArticleByID(ctx context.Context, id int32) (UsersArticle, error)
+	GetUsersArticleByMD5(ctx context.Context, md5 string) (UsersArticle, error)
+	GetUsersArticleByTaskID(ctx context.Context, taskID uuid.UUID) (UsersArticle, error)
 	InsertArticle(ctx context.Context, arg InsertArticleParams) (int32, error)
 	InsertChunk(ctx context.Context, arg InsertChunkParams) (int32, error)
 	InsertChunksBatch(ctx context.Context, arg []InsertChunksBatchParams) *InsertChunksBatchBatchResults
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) (int32, error)
 	InsertEmbeddingBatch(ctx context.Context, arg []InsertEmbeddingBatchParams) *InsertEmbeddingBatchBatchResults
-	InsertUserArticle(ctx context.Context, arg InsertUserArticleParams) (int32, error)
-	InsertUserChunk(ctx context.Context, arg InsertUserChunkParams) (int32, error)
-	InsertUserChunksBatch(ctx context.Context, arg []InsertUserChunksBatchParams) *InsertUserChunksBatchBatchResults
+	InsertModel(ctx context.Context, name string) (int32, error)
+	InsertTestUserArticle(ctx context.Context, arg InsertTestUserArticleParams) (int32, error)
+	InsertUserEmbedding(ctx context.Context, arg InsertUserEmbeddingParams) (int32, error)
+	InsertUsersArticle(ctx context.Context, arg InsertUsersArticleParams) (int32, error)
+	InsertUsersChunk(ctx context.Context, arg InsertUsersChunkParams) (int32, error)
+	InsertUsersChunksBatch(ctx context.Context, arg []InsertUsersChunksBatchParams) *InsertUsersChunksBatchBatchResults
+	InsertUsersEmbedding(ctx context.Context, arg InsertUsersEmbeddingParams) (int32, error)
+	InsertUsersEmbeddingBatch(ctx context.Context, arg []InsertUsersEmbeddingBatchParams) *InsertUsersEmbeddingBatchBatchResults
+	ListModels(ctx context.Context, arg ListModelsParams) ([]ListModelsRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

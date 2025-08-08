@@ -12,19 +12,15 @@ import (
 )
 
 const getAverageEmbeddingByArticleIDs = `-- name: GetAverageEmbeddingByArticleIDs :one
-SELECT
-    e.article_id,
+SELECT e.article_id,
     e.model_id,
     AVG(e.vector)::vector AS avg_vector
-FROM
-    embeddings AS e
-WHERE
-    e.article_id = ANY($1::integer[])
+FROM embeddings AS e
+WHERE e.article_id = ANY($1::integer [])
     AND e.model_id = $2::integer
     AND e.vector IS NOT NULL
     AND e.vector <> '[]'::vector
-GROUP BY
-    e.article_id
+GROUP BY e.article_id
 `
 
 type GetAverageEmbeddingByArticleIDsParams struct {
@@ -45,18 +41,44 @@ func (q *Queries) GetAverageEmbeddingByArticleIDs(ctx context.Context, arg GetAv
 	return i, err
 }
 
+const getAverageUsersEmbeddingByArticleIDs = `-- name: GetAverageUsersEmbeddingByArticleIDs :one
+SELECT e.article_id,
+    e.model_id,
+    AVG(e.vector)::vector AS avg_vector
+FROM users.embeddings AS e
+WHERE e.article_id = ANY($1::integer [])
+    AND e.model_id = $2::integer
+    AND e.vector IS NOT NULL
+    AND e.vector <> '[]'::vector
+GROUP BY e.article_id
+`
+
+type GetAverageUsersEmbeddingByArticleIDsParams struct {
+	ArticleIds []int32 `db:"article_ids" json:"article_ids"`
+	ModelID    int32   `db:"model_id" json:"model_id"`
+}
+
+type GetAverageUsersEmbeddingByArticleIDsRow struct {
+	ArticleID int32           `db:"article_id" json:"article_id"`
+	ModelID   int32           `db:"model_id" json:"model_id"`
+	AvgVector pgvector.Vector `db:"avg_vector" json:"avg_vector"`
+}
+
+func (q *Queries) GetAverageUsersEmbeddingByArticleIDs(ctx context.Context, arg GetAverageUsersEmbeddingByArticleIDsParams) (GetAverageUsersEmbeddingByArticleIDsRow, error) {
+	row := q.db.QueryRow(ctx, getAverageUsersEmbeddingByArticleIDs, arg.ArticleIds, arg.ModelID)
+	var i GetAverageUsersEmbeddingByArticleIDsRow
+	err := row.Scan(&i.ArticleID, &i.ModelID, &i.AvgVector)
+	return i, err
+}
+
 const getKNNEmbeddingsByCosineSimilarity = `-- name: GetKNNEmbeddingsByCosineSimilarity :many
-SELECT
-    article_id,
-    (vector <=> $1::vector)::float8 AS similarity  -- <=> is the cosine distance operator in pgvector
-FROM
-    embeddings
-WHERE
-    model_id = $2::integer
+SELECT article_id,
+    (vector <=> $1::vector)::float8 AS similarity -- <=> is the cosine distance operator in pgvector
+FROM embeddings
+WHERE model_id = $2::integer
     AND vector IS NOT NULL
     AND vector <> '[]'::vector
-ORDER BY
-    vector <=> $1
+ORDER BY vector <=> $1
 LIMIT $3::integer
 `
 
@@ -92,24 +114,19 @@ func (q *Queries) GetKNNEmbeddingsByCosineSimilarity(ctx context.Context, arg Ge
 }
 
 const getKNNEmbeddingsByInnerProduct = `-- name: GetKNNEmbeddingsByInnerProduct :many
-SELECT
-    article_id,
-    (vector <#> $1::vector)::float8 AS inner_product  -- <#> is the inner product operator in pgvector
-FROM
-    embeddings
-WHERE
-    model_id = $2::integer
+SELECT article_id,
+    (vector <#>@query::vector)::float8 AS inner_product -- <#> is the inner product operator in pgvector
+FROM embeddings
+WHERE model_id = $1::integer
     AND vector IS NOT NULL
     AND vector <> '[]'::vector
-ORDER BY
-    vector <#> $1
-LIMIT $3::integer
+ORDER BY vector <#>@query
+LIMIT $2::integer
 `
 
 type GetKNNEmbeddingsByInnerProductParams struct {
-	Query   pgvector.Vector `db:"query" json:"query"`
-	ModelID int32           `db:"model_id" json:"model_id"`
-	K       int32           `db:"k" json:"k"`
+	ModelID int32 `db:"model_id" json:"model_id"`
+	K       int32 `db:"k" json:"k"`
 }
 
 type GetKNNEmbeddingsByInnerProductRow struct {
@@ -118,7 +135,7 @@ type GetKNNEmbeddingsByInnerProductRow struct {
 }
 
 func (q *Queries) GetKNNEmbeddingsByInnerProduct(ctx context.Context, arg GetKNNEmbeddingsByInnerProductParams) ([]GetKNNEmbeddingsByInnerProductRow, error) {
-	rows, err := q.db.Query(ctx, getKNNEmbeddingsByInnerProduct, arg.Query, arg.ModelID, arg.K)
+	rows, err := q.db.Query(ctx, getKNNEmbeddingsByInnerProduct, arg.ModelID, arg.K)
 	if err != nil {
 		return nil, err
 	}
@@ -138,24 +155,19 @@ func (q *Queries) GetKNNEmbeddingsByInnerProduct(ctx context.Context, arg GetKNN
 }
 
 const getKNNEmbeddingsByL2Distance = `-- name: GetKNNEmbeddingsByL2Distance :many
-SELECT
-    article_id,
-    (vector <-> $1::vector)::float8 AS distance -- <-> is the L2 distance operator in pgvector
-FROM
-    embeddings
-WHERE
-    model_id = $2::integer
+SELECT article_id,
+    (vector <->@query::vector)::float8 AS distance -- <-> is the L2 distance operator in pgvector
+FROM embeddings
+WHERE model_id = $1::integer
     AND vector IS NOT NULL
     AND vector <> '[]'::vector
-ORDER BY
-    vector <-> $1
-LIMIT $3::integer
+ORDER BY vector <->@query
+LIMIT $2::integer
 `
 
 type GetKNNEmbeddingsByL2DistanceParams struct {
-	Query   pgvector.Vector `db:"query" json:"query"`
-	ModelID int32           `db:"model_id" json:"model_id"`
-	K       int32           `db:"k" json:"k"`
+	ModelID int32 `db:"model_id" json:"model_id"`
+	K       int32 `db:"k" json:"k"`
 }
 
 type GetKNNEmbeddingsByL2DistanceRow struct {
@@ -164,7 +176,7 @@ type GetKNNEmbeddingsByL2DistanceRow struct {
 }
 
 func (q *Queries) GetKNNEmbeddingsByL2Distance(ctx context.Context, arg GetKNNEmbeddingsByL2DistanceParams) ([]GetKNNEmbeddingsByL2DistanceRow, error) {
-	rows, err := q.db.Query(ctx, getKNNEmbeddingsByL2Distance, arg.Query, arg.ModelID, arg.K)
+	rows, err := q.db.Query(ctx, getKNNEmbeddingsByL2Distance, arg.ModelID, arg.K)
 	if err != nil {
 		return nil, err
 	}
@@ -183,18 +195,139 @@ func (q *Queries) GetKNNEmbeddingsByL2Distance(ctx context.Context, arg GetKNNEm
 	return items, nil
 }
 
+const getKNNUsersEmbeddingsByCosineSimilarity = `-- name: GetKNNUsersEmbeddingsByCosineSimilarity :many
+SELECT article_id,
+    (vector <=> $1::vector)::float8 AS similarity -- <=> is the cosine distance operator in pgvector
+FROM users.embeddings
+WHERE model_id = $2::integer
+    AND vector IS NOT NULL
+    AND vector <> '[]'::vector
+ORDER BY vector <=> $1
+LIMIT $3::integer
+`
+
+type GetKNNUsersEmbeddingsByCosineSimilarityParams struct {
+	Query   pgvector.Vector `db:"query" json:"query"`
+	ModelID int32           `db:"model_id" json:"model_id"`
+	K       int32           `db:"k" json:"k"`
+}
+
+type GetKNNUsersEmbeddingsByCosineSimilarityRow struct {
+	ArticleID  int32   `db:"article_id" json:"article_id"`
+	Similarity float64 `db:"similarity" json:"similarity"`
+}
+
+func (q *Queries) GetKNNUsersEmbeddingsByCosineSimilarity(ctx context.Context, arg GetKNNUsersEmbeddingsByCosineSimilarityParams) ([]GetKNNUsersEmbeddingsByCosineSimilarityRow, error) {
+	rows, err := q.db.Query(ctx, getKNNUsersEmbeddingsByCosineSimilarity, arg.Query, arg.ModelID, arg.K)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetKNNUsersEmbeddingsByCosineSimilarityRow
+	for rows.Next() {
+		var i GetKNNUsersEmbeddingsByCosineSimilarityRow
+		if err := rows.Scan(&i.ArticleID, &i.Similarity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getKNNUsersEmbeddingsByInnerProduct = `-- name: GetKNNUsersEmbeddingsByInnerProduct :many
+SELECT article_id,
+    (vector <#>@query::vector)::float8 AS inner_product -- <#> is the inner product operator in pgvector
+FROM users.embeddings
+WHERE model_id = $1::integer
+    AND vector IS NOT NULL
+    AND vector <> '[]'::vector
+ORDER BY vector <#>@query
+LIMIT $2::integer
+`
+
+type GetKNNUsersEmbeddingsByInnerProductParams struct {
+	ModelID int32 `db:"model_id" json:"model_id"`
+	K       int32 `db:"k" json:"k"`
+}
+
+type GetKNNUsersEmbeddingsByInnerProductRow struct {
+	ArticleID    int32   `db:"article_id" json:"article_id"`
+	InnerProduct float64 `db:"inner_product" json:"inner_product"`
+}
+
+func (q *Queries) GetKNNUsersEmbeddingsByInnerProduct(ctx context.Context, arg GetKNNUsersEmbeddingsByInnerProductParams) ([]GetKNNUsersEmbeddingsByInnerProductRow, error) {
+	rows, err := q.db.Query(ctx, getKNNUsersEmbeddingsByInnerProduct, arg.ModelID, arg.K)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetKNNUsersEmbeddingsByInnerProductRow
+	for rows.Next() {
+		var i GetKNNUsersEmbeddingsByInnerProductRow
+		if err := rows.Scan(&i.ArticleID, &i.InnerProduct); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getKNNUsersEmbeddingsByL2Distance = `-- name: GetKNNUsersEmbeddingsByL2Distance :many
+SELECT article_id,
+    (vector <->@query::vector)::float8 AS distance -- <-> is the L2 distance operator in pgvector
+FROM users.embeddings
+WHERE model_id = $1::integer
+    AND vector IS NOT NULL
+    AND vector <> '[]'::vector
+ORDER BY vector <->@query
+LIMIT $2::integer
+`
+
+type GetKNNUsersEmbeddingsByL2DistanceParams struct {
+	ModelID int32 `db:"model_id" json:"model_id"`
+	K       int32 `db:"k" json:"k"`
+}
+
+type GetKNNUsersEmbeddingsByL2DistanceRow struct {
+	ArticleID int32   `db:"article_id" json:"article_id"`
+	Distance  float64 `db:"distance" json:"distance"`
+}
+
+func (q *Queries) GetKNNUsersEmbeddingsByL2Distance(ctx context.Context, arg GetKNNUsersEmbeddingsByL2DistanceParams) ([]GetKNNUsersEmbeddingsByL2DistanceRow, error) {
+	rows, err := q.db.Query(ctx, getKNNUsersEmbeddingsByL2Distance, arg.ModelID, arg.K)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetKNNUsersEmbeddingsByL2DistanceRow
+	for rows.Next() {
+		var i GetKNNUsersEmbeddingsByL2DistanceRow
+		if err := rows.Scan(&i.ArticleID, &i.Distance); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertEmbedding = `-- name: InsertEmbedding :one
 INSERT INTO embeddings (
-    article_id,
-    chunk_id,
-    model_id,
-    vector
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4::vector
-) RETURNING id
+        article_id,
+        chunk_id,
+        model_id,
+        vector
+    )
+VALUES ($1, $2, $3, $4::vector)
+RETURNING id
 `
 
 type InsertEmbeddingParams struct {
@@ -206,6 +339,66 @@ type InsertEmbeddingParams struct {
 
 func (q *Queries) InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) (int32, error) {
 	row := q.db.QueryRow(ctx, insertEmbedding,
+		arg.ArticleID,
+		arg.ChunkID,
+		arg.ModelID,
+		arg.Vector,
+	)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertUserEmbedding = `-- name: InsertUserEmbedding :one
+INSERT INTO users.embeddings (
+        article_id,
+        chunk_id,
+        model_id,
+        vector
+    )
+VALUES ($1, $2, $3, $4::vector)
+RETURNING id
+`
+
+type InsertUserEmbeddingParams struct {
+	ArticleID int32           `db:"article_id" json:"article_id"`
+	ChunkID   int32           `db:"chunk_id" json:"chunk_id"`
+	ModelID   int32           `db:"model_id" json:"model_id"`
+	Vector    pgvector.Vector `db:"vector" json:"vector"`
+}
+
+func (q *Queries) InsertUserEmbedding(ctx context.Context, arg InsertUserEmbeddingParams) (int32, error) {
+	row := q.db.QueryRow(ctx, insertUserEmbedding,
+		arg.ArticleID,
+		arg.ChunkID,
+		arg.ModelID,
+		arg.Vector,
+	)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertUsersEmbedding = `-- name: InsertUsersEmbedding :one
+INSERT INTO users.embeddings (
+        article_id,
+        chunk_id,
+        model_id,
+        vector
+    )
+VALUES ($1, $2, $3, $4::vector)
+RETURNING id
+`
+
+type InsertUsersEmbeddingParams struct {
+	ArticleID int32           `db:"article_id" json:"article_id"`
+	ChunkID   int32           `db:"chunk_id" json:"chunk_id"`
+	ModelID   int32           `db:"model_id" json:"model_id"`
+	Vector    pgvector.Vector `db:"vector" json:"vector"`
+}
+
+func (q *Queries) InsertUsersEmbedding(ctx context.Context, arg InsertUsersEmbeddingParams) (int32, error) {
+	row := q.db.QueryRow(ctx, insertUsersEmbedding,
 		arg.ArticleID,
 		arg.ChunkID,
 		arg.ModelID,

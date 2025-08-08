@@ -67,6 +67,15 @@ func (e Party) Valid() bool {
 	return false
 }
 
+func AllPartyValues() []Party {
+	return []Party{
+		PartyNone,
+		PartyKMT,
+		PartyDPP,
+		PartyTPP,
+	}
+}
+
 type SourceType string
 
 const (
@@ -116,6 +125,13 @@ func (e SourceType) Valid() bool {
 		return true
 	}
 	return false
+}
+
+func AllSourceTypeValues() []SourceType {
+	return []SourceType{
+		SourceTypeUrl,
+		SourceTypeText,
+	}
 }
 
 type TaskStatus string
@@ -171,6 +187,15 @@ func (e TaskStatus) Valid() bool {
 		return true
 	}
 	return false
+}
+
+func AllTaskStatusValues() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPending,
+		TaskStatusProcessing,
+		TaskStatusDone,
+		TaskStatusFailed,
+	}
 }
 
 type Article struct {

@@ -1,6 +1,9 @@
 -- Reset the sequence for embedding table
 ALTER SEQUENCE users.embeddings_id_seq RESTART WITH 1;
+DROP INDEX IF EXISTS users.embeddings_vector_hnsw_idx;
+
 ALTER SEQUENCE embeddings_id_seq RESTART WITH 1;
+DROP INDEX IF EXISTS embeddings_vector_hnsw_idx;
 
 -- Drop the embedding table
 DROP TABLE IF EXISTS users.embeddings;

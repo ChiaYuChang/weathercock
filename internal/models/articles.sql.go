@@ -13,24 +13,16 @@ import (
 )
 
 const extractChunks = `-- name: ExtractChunks :many
-SELECT
-    c.article_id AS article_id,
+SELECT c.article_id AS article_id,
     c.id AS chunk_id,
     substring(
-        a.content 
-        FROM c."start" + 1
-        FOR (c."end" - c."start")
+        a.content
+        FROM c."start" + 1 FOR (c."end" - c."start")
     ) AS content
-FROM
-    articles AS a
-JOIN
-    chunks AS c
-ON 
-    a.id = c.article_id
-WHERE
-    a.id = $1
-ORDER BY
-    c."start"
+FROM articles AS a
+    JOIN chunks AS c ON a.id = c.article_id
+WHERE a.id = $1
+ORDER BY c."start"
 `
 
 type ExtractChunksRow struct {
@@ -59,42 +51,34 @@ func (q *Queries) ExtractChunks(ctx context.Context, id int32) ([]ExtractChunksR
 	return items, nil
 }
 
-const extractUserChunks = `-- name: ExtractUserChunks :many
-SELECT
-    c.article_id AS article_id,
+const extractUsersChunks = `-- name: ExtractUsersChunks :many
+SELECT c.article_id AS article_id,
     c.id AS chunk_id,
     substring(
-        a.content 
-        FROM c."start" + 1
-        FOR (c."end" - c."start")
+        a.content
+        FROM c."start" + 1 FOR (c."end" - c."start")
     ) AS content
-FROM
-    users.articles AS a
-JOIN
-    users.chunks AS c
-ON 
-    a.id = c.article_id
-WHERE
-    a.id = $1
-ORDER BY
-    c."start"
+FROM users.articles AS a
+    JOIN users.chunks AS c ON a.id = c.article_id
+WHERE a.id = $1
+ORDER BY c."start"
 `
 
-type ExtractUserChunksRow struct {
+type ExtractUsersChunksRow struct {
 	ArticleID int32       `db:"article_id" json:"article_id"`
 	ChunkID   int32       `db:"chunk_id" json:"chunk_id"`
 	Content   pgtype.Bits `db:"content" json:"content"`
 }
 
-func (q *Queries) ExtractUserChunks(ctx context.Context, id int32) ([]ExtractUserChunksRow, error) {
-	rows, err := q.db.Query(ctx, extractUserChunks, id)
+func (q *Queries) ExtractUsersChunks(ctx context.Context, id int32) ([]ExtractUsersChunksRow, error) {
+	rows, err := q.db.Query(ctx, extractUsersChunks, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ExtractUserChunksRow
+	var items []ExtractUsersChunksRow
 	for rows.Next() {
-		var i ExtractUserChunksRow
+		var i ExtractUsersChunksRow
 		if err := rows.Scan(&i.ArticleID, &i.ChunkID, &i.Content); err != nil {
 			return nil, err
 		}
@@ -107,12 +91,9 @@ func (q *Queries) ExtractUserChunks(ctx context.Context, id int32) ([]ExtractUse
 }
 
 const getArticleByID = `-- name: GetArticleByID :one
-SELECT
-    id, title, url, source, md5, party, content, cuts, published_at, created_at
-FROM
-    articles
-WHERE
-    id = $1
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE id = $1
 `
 
 func (q *Queries) GetArticleByID(ctx context.Context, id int32) (Article, error) {
@@ -134,12 +115,9 @@ func (q *Queries) GetArticleByID(ctx context.Context, id int32) (Article, error)
 }
 
 const getArticleByMD5 = `-- name: GetArticleByMD5 :one
-SELECT
-    id, title, url, source, md5, party, content, cuts, published_at, created_at
-FROM
-    articles
-WHERE
-    md5 = $1
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE md5 = $1
 `
 
 func (q *Queries) GetArticleByMD5(ctx context.Context, md5 string) (Article, error) {
@@ -161,14 +139,10 @@ func (q *Queries) GetArticleByMD5(ctx context.Context, md5 string) (Article, err
 }
 
 const getArticleByURL = `-- name: GetArticleByURL :one
-SELECT
-    id, title, url, source, md5, party, content, cuts, published_at, created_at
-FROM
-    articles
-WHERE
-    "url" = $1
-ORDER BY
-    published_at DESC
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE "url" = $1
+ORDER BY published_at DESC
 LIMIT 1
 `
 
@@ -191,16 +165,11 @@ func (q *Queries) GetArticleByURL(ctx context.Context, url string) (Article, err
 }
 
 const getArticleWithinTimeInterval = `-- name: GetArticleWithinTimeInterval :many
-SELECT
-    id, title, url, source, md5, party, content, cuts, published_at, created_at
-FROM
-    articles
-WHERE
-    published_at BETWEEN $1 AND $2
-ORDER BY
-    published_at DESC
-LIMIT
-    $3::integer
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE published_at BETWEEN $1 AND $2
+ORDER BY published_at DESC
+LIMIT $3::integer
 `
 
 type GetArticleWithinTimeIntervalParams struct {
@@ -241,16 +210,11 @@ func (q *Queries) GetArticleWithinTimeInterval(ctx context.Context, arg GetArtic
 }
 
 const getArticlesInPastKDays = `-- name: GetArticlesInPastKDays :many
-SELECT
-    id, title, url, source, md5, party, content, cuts, published_at, created_at
-FROM
-    articles
-WHERE
-    published_at >= NOW() - INTERVAL '1 day' * $1::integer
-ORDER BY
-    published_at DESC
-LIMIT 
-    $2::integer
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE published_at >= NOW() - INTERVAL '1 day' * $1::integer
+ORDER BY published_at DESC
+LIMIT $2::integer
 `
 
 type GetArticlesInPastKDaysParams struct {
@@ -289,17 +253,14 @@ func (q *Queries) GetArticlesInPastKDays(ctx context.Context, arg GetArticlesInP
 	return items, nil
 }
 
-const getUserArticleByID = `-- name: GetUserArticleByID :one
-SELECT
-    id, task_id, title, url, source, md5, content, cuts, published_at, created_at
-FROM
-    users.articles
-WHERE
-    id = $1
+const getUsersArticleByID = `-- name: GetUsersArticleByID :one
+SELECT id, task_id, title, url, source, md5, content, cuts, published_at, created_at
+FROM users.articles
+WHERE id = $1
 `
 
-func (q *Queries) GetUserArticleByID(ctx context.Context, id int32) (UsersArticle, error) {
-	row := q.db.QueryRow(ctx, getUserArticleByID, id)
+func (q *Queries) GetUsersArticleByID(ctx context.Context, id int32) (UsersArticle, error) {
+	row := q.db.QueryRow(ctx, getUsersArticleByID, id)
 	var i UsersArticle
 	err := row.Scan(
 		&i.ID,
@@ -316,17 +277,14 @@ func (q *Queries) GetUserArticleByID(ctx context.Context, id int32) (UsersArticl
 	return i, err
 }
 
-const getUserArticleByMD5 = `-- name: GetUserArticleByMD5 :one
-SELECT
-    id, task_id, title, url, source, md5, content, cuts, published_at, created_at
-FROM
-    users.articles
-WHERE
-    md5 = $1
+const getUsersArticleByMD5 = `-- name: GetUsersArticleByMD5 :one
+SELECT id, task_id, title, url, source, md5, content, cuts, published_at, created_at
+FROM users.articles
+WHERE md5 = $1
 `
 
-func (q *Queries) GetUserArticleByMD5(ctx context.Context, md5 string) (UsersArticle, error) {
-	row := q.db.QueryRow(ctx, getUserArticleByMD5, md5)
+func (q *Queries) GetUsersArticleByMD5(ctx context.Context, md5 string) (UsersArticle, error) {
+	row := q.db.QueryRow(ctx, getUsersArticleByMD5, md5)
 	var i UsersArticle
 	err := row.Scan(
 		&i.ID,
@@ -343,17 +301,14 @@ func (q *Queries) GetUserArticleByMD5(ctx context.Context, md5 string) (UsersArt
 	return i, err
 }
 
-const getUserArticleByTaskID = `-- name: GetUserArticleByTaskID :one
-SELECT
-    id, task_id, title, url, source, md5, content, cuts, published_at, created_at
-FROM
-    users.articles
-WHERE
-    task_id = $1
+const getUsersArticleByTaskID = `-- name: GetUsersArticleByTaskID :one
+SELECT id, task_id, title, url, source, md5, content, cuts, published_at, created_at
+FROM users.articles
+WHERE task_id = $1
 `
 
-func (q *Queries) GetUserArticleByTaskID(ctx context.Context, taskID uuid.UUID) (UsersArticle, error) {
-	row := q.db.QueryRow(ctx, getUserArticleByTaskID, taskID)
+func (q *Queries) GetUsersArticleByTaskID(ctx context.Context, taskID uuid.UUID) (UsersArticle, error) {
+	row := q.db.QueryRow(ctx, getUsersArticleByTaskID, taskID)
 	var i UsersArticle
 	err := row.Scan(
 		&i.ID,
@@ -372,24 +327,26 @@ func (q *Queries) GetUserArticleByTaskID(ctx context.Context, taskID uuid.UUID) 
 
 const insertArticle = `-- name: InsertArticle :one
 INSERT INTO articles (
-    title,
-    "url",
-    source,
-    md5,
-    party,
-    content,
-    cuts,
-    published_at
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7,
-    $8
-) RETURNING id
+        title,
+        "url",
+        source,
+        md5,
+        party,
+        content,
+        cuts,
+        published_at
+    )
+VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8
+    )
+RETURNING id
 `
 
 type InsertArticleParams struct {
@@ -421,18 +378,14 @@ func (q *Queries) InsertArticle(ctx context.Context, arg InsertArticleParams) (i
 
 const insertChunk = `-- name: InsertChunk :one
 INSERT INTO chunks (
-    article_id,
-    "start",
-    offset_left,
-    offset_right,
-    "end"
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
-) RETURNING id
+        article_id,
+        "start",
+        offset_left,
+        offset_right,
+        "end"
+    )
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id
 `
 
 type InsertChunkParams struct {
@@ -456,29 +409,86 @@ func (q *Queries) InsertChunk(ctx context.Context, arg InsertChunkParams) (int32
 	return id, err
 }
 
-const insertUserArticle = `-- name: InsertUserArticle :one
+const insertTestUserArticle = `-- name: InsertTestUserArticle :one
 INSERT INTO users.articles (
-    task_id,
-    title,
-    "url",
-    source,
-    md5,
-    content,
-    cuts,
-    published_at
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7,
-    $8
-) RETURNING id
+        task_id,
+        title,
+        "url",
+        source,
+        md5,
+        content,
+        cuts,
+        published_at,
+        created_at
+    )
+VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+RETURNING id
 `
 
-type InsertUserArticleParams struct {
+type InsertTestUserArticleParams struct {
+	TaskID      uuid.UUID          `db:"task_id" json:"task_id"`
+	Title       string             `db:"title" json:"title"`
+	Url         string             `db:"url" json:"url"`
+	Source      string             `db:"source" json:"source"`
+	Md5         string             `db:"md5" json:"md5"`
+	Content     string             `db:"content" json:"content"`
+	Cuts        []int32            `db:"cuts" json:"cuts"`
+	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) InsertTestUserArticle(ctx context.Context, arg InsertTestUserArticleParams) (int32, error) {
+	row := q.db.QueryRow(ctx, insertTestUserArticle,
+		arg.TaskID,
+		arg.Title,
+		arg.Url,
+		arg.Source,
+		arg.Md5,
+		arg.Content,
+		arg.Cuts,
+		arg.PublishedAt,
+		arg.CreatedAt,
+	)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertUsersArticle = `-- name: InsertUsersArticle :one
+INSERT INTO users.articles (
+        task_id,
+        title,
+        "url",
+        source,
+        md5,
+        content,
+        cuts,
+        published_at
+    )
+VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8
+    )
+RETURNING id
+`
+
+type InsertUsersArticleParams struct {
 	TaskID      uuid.UUID          `db:"task_id" json:"task_id"`
 	Title       string             `db:"title" json:"title"`
 	Url         string             `db:"url" json:"url"`
@@ -489,8 +499,8 @@ type InsertUserArticleParams struct {
 	PublishedAt pgtype.Timestamptz `db:"published_at" json:"published_at"`
 }
 
-func (q *Queries) InsertUserArticle(ctx context.Context, arg InsertUserArticleParams) (int32, error) {
-	row := q.db.QueryRow(ctx, insertUserArticle,
+func (q *Queries) InsertUsersArticle(ctx context.Context, arg InsertUsersArticleParams) (int32, error) {
+	row := q.db.QueryRow(ctx, insertUsersArticle,
 		arg.TaskID,
 		arg.Title,
 		arg.Url,
@@ -505,23 +515,19 @@ func (q *Queries) InsertUserArticle(ctx context.Context, arg InsertUserArticlePa
 	return id, err
 }
 
-const insertUserChunk = `-- name: InsertUserChunk :one
+const insertUsersChunk = `-- name: InsertUsersChunk :one
 INSERT INTO users.chunks (
-    article_id,
-    "start",
-    offset_left,
-    offset_right,
-    "end"
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
-) RETURNING id
+        article_id,
+        "start",
+        offset_left,
+        offset_right,
+        "end"
+    )
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id
 `
 
-type InsertUserChunkParams struct {
+type InsertUsersChunkParams struct {
 	ArticleID   int32 `db:"article_id" json:"article_id"`
 	Start       int32 `db:"start" json:"start"`
 	OffsetLeft  int32 `db:"offset_left" json:"offset_left"`
@@ -529,8 +535,8 @@ type InsertUserChunkParams struct {
 	End         int32 `db:"end" json:"end"`
 }
 
-func (q *Queries) InsertUserChunk(ctx context.Context, arg InsertUserChunkParams) (int32, error) {
-	row := q.db.QueryRow(ctx, insertUserChunk,
+func (q *Queries) InsertUsersChunk(ctx context.Context, arg InsertUsersChunkParams) (int32, error) {
+	row := q.db.QueryRow(ctx, insertUsersChunk,
 		arg.ArticleID,
 		arg.Start,
 		arg.OffsetLeft,

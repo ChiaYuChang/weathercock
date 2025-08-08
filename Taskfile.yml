@@ -33,8 +33,20 @@ tasks:
       - go run ./cmd/worker/main.go
   go-run-scraper:
     desc: Run the scraper
+    requires:
+      vars:
+        - party
+        - dir
     cmds:
-      - go run ./cmd/scraper/main.go
+      - go run ./cmd/scraper/main.go --party {{.party}} --dir {{.dir}} 
+  go-run-testdata:
+    desc: Run the test data generator
+    requires:
+      vars:
+        - party
+        - dir
+    cmds:
+      - go run ./cmd/testdata/main.go 
   migrate-up:
     desc: Run database migrations
     cmds:

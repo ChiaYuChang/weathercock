@@ -17,21 +17,15 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
-const insertChunksBatch = `-- name: InsertChunksBatch :batchexec
+const insertChunksBatch = `-- name: InsertChunksBatch :batchone
 INSERT INTO users.chunks (
-    article_id,
-    "start",
-    offset_left,
-    offset_right,
-    "end"
-) VALUES (
-    $1, 
-    $2,
-    $3,
-    $4,
-    $5
-) 
-ON CONFLICT DO NOTHING
+        article_id,
+        "start",
+        offset_left,
+        offset_right,
+        "end"
+    )
+VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
 RETURNING id
 `
 
@@ -65,18 +59,20 @@ func (q *Queries) InsertChunksBatch(ctx context.Context, arg []InsertChunksBatch
 	return &InsertChunksBatchBatchResults{br, len(arg), false}
 }
 
-func (b *InsertChunksBatchBatchResults) Exec(f func(int, error)) {
+func (b *InsertChunksBatchBatchResults) QueryRow(f func(int, int32, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
+		var id int32
 		if b.closed {
 			if f != nil {
-				f(t, ErrBatchAlreadyClosed)
+				f(t, id, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
-		_, err := b.br.Exec()
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
 		if f != nil {
-			f(t, err)
+			f(t, id, err)
 		}
 	}
 }
@@ -86,19 +82,14 @@ func (b *InsertChunksBatchBatchResults) Close() error {
 	return b.br.Close()
 }
 
-const insertEmbeddingBatch = `-- name: InsertEmbeddingBatch :batchexec
+const insertEmbeddingBatch = `-- name: InsertEmbeddingBatch :batchone
 INSERT INTO embeddings (
-    article_id,
-    chunk_id,
-    model_id,
-    vector
-) VALUES (
-    $1, 
-    $2,
-    $3,
-    $4::vector
-)
-ON CONFLICT DO NOTHING
+        article_id,
+        chunk_id,
+        model_id,
+        vector
+    )
+VALUES ($1, $2, $3, $4::vector) ON CONFLICT DO NOTHING
 RETURNING id
 `
 
@@ -130,18 +121,20 @@ func (q *Queries) InsertEmbeddingBatch(ctx context.Context, arg []InsertEmbeddin
 	return &InsertEmbeddingBatchBatchResults{br, len(arg), false}
 }
 
-func (b *InsertEmbeddingBatchBatchResults) Exec(f func(int, error)) {
+func (b *InsertEmbeddingBatchBatchResults) QueryRow(f func(int, int32, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
+		var id int32
 		if b.closed {
 			if f != nil {
-				f(t, ErrBatchAlreadyClosed)
+				f(t, id, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
-		_, err := b.br.Exec()
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
 		if f != nil {
-			f(t, err)
+			f(t, id, err)
 		}
 	}
 }
@@ -151,31 +144,25 @@ func (b *InsertEmbeddingBatchBatchResults) Close() error {
 	return b.br.Close()
 }
 
-const insertUserChunksBatch = `-- name: InsertUserChunksBatch :batchexec
+const insertUsersChunksBatch = `-- name: InsertUsersChunksBatch :batchone
 INSERT INTO users.chunks (
-    article_id,
-    "start",
-    offset_left,
-    offset_right,
-    "end"
-) VALUES (
-    $1, 
-    $2,
-    $3,
-    $4,
-    $5
-) 
-ON CONFLICT DO NOTHING
+        article_id,
+        "start",
+        offset_left,
+        offset_right,
+        "end"
+    )
+VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
 RETURNING id
 `
 
-type InsertUserChunksBatchBatchResults struct {
+type InsertUsersChunksBatchBatchResults struct {
 	br     pgx.BatchResults
 	tot    int
 	closed bool
 }
 
-type InsertUserChunksBatchParams struct {
+type InsertUsersChunksBatchParams struct {
 	ArticleID   int32 `db:"article_id" json:"article_id"`
 	Start       int32 `db:"start" json:"start"`
 	OffsetLeft  int32 `db:"offset_left" json:"offset_left"`
@@ -183,7 +170,7 @@ type InsertUserChunksBatchParams struct {
 	End         int32 `db:"end" json:"end"`
 }
 
-func (q *Queries) InsertUserChunksBatch(ctx context.Context, arg []InsertUserChunksBatchParams) *InsertUserChunksBatchBatchResults {
+func (q *Queries) InsertUsersChunksBatch(ctx context.Context, arg []InsertUsersChunksBatchParams) *InsertUsersChunksBatchBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
@@ -193,29 +180,93 @@ func (q *Queries) InsertUserChunksBatch(ctx context.Context, arg []InsertUserChu
 			a.OffsetRight,
 			a.End,
 		}
-		batch.Queue(insertUserChunksBatch, vals...)
+		batch.Queue(insertUsersChunksBatch, vals...)
 	}
 	br := q.db.SendBatch(ctx, batch)
-	return &InsertUserChunksBatchBatchResults{br, len(arg), false}
+	return &InsertUsersChunksBatchBatchResults{br, len(arg), false}
 }
 
-func (b *InsertUserChunksBatchBatchResults) Exec(f func(int, error)) {
+func (b *InsertUsersChunksBatchBatchResults) QueryRow(f func(int, int32, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
+		var id int32
 		if b.closed {
 			if f != nil {
-				f(t, ErrBatchAlreadyClosed)
+				f(t, id, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
-		_, err := b.br.Exec()
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
 		if f != nil {
-			f(t, err)
+			f(t, id, err)
 		}
 	}
 }
 
-func (b *InsertUserChunksBatchBatchResults) Close() error {
+func (b *InsertUsersChunksBatchBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const insertUsersEmbeddingBatch = `-- name: InsertUsersEmbeddingBatch :batchone
+INSERT INTO users.embeddings (
+        article_id,
+        chunk_id,
+        model_id,
+        vector
+    )
+VALUES ($1, $2, $3, $4::vector) ON CONFLICT DO NOTHING
+RETURNING id
+`
+
+type InsertUsersEmbeddingBatchBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type InsertUsersEmbeddingBatchParams struct {
+	ArticleID int32           `db:"article_id" json:"article_id"`
+	ChunkID   int32           `db:"chunk_id" json:"chunk_id"`
+	ModelID   int32           `db:"model_id" json:"model_id"`
+	Vector    pgvector.Vector `db:"vector" json:"vector"`
+}
+
+func (q *Queries) InsertUsersEmbeddingBatch(ctx context.Context, arg []InsertUsersEmbeddingBatchParams) *InsertUsersEmbeddingBatchBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ArticleID,
+			a.ChunkID,
+			a.ModelID,
+			a.Vector,
+		}
+		batch.Queue(insertUsersEmbeddingBatch, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &InsertUsersEmbeddingBatchBatchResults{br, len(arg), false}
+}
+
+func (b *InsertUsersEmbeddingBatchBatchResults) QueryRow(f func(int, int32, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id int32
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *InsertUsersEmbeddingBatchBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

@@ -29,7 +29,7 @@ func (r *Repo) Create(ctx context.Context, url, text string) (uuid.UUID, error) 
 	if url != "" {
 		vCtx, vCancel := context.WithTimeout(ctx, 1*time.Second)
 		defer vCancel()
-		global.Validate().VarCtx(vCtx, url, "url")
+		global.Validator().VarCtx(vCtx, url, "url")
 
 		sCtv, sCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer sCancel()
@@ -38,7 +38,7 @@ func (r *Repo) Create(ctx context.Context, url, text string) (uuid.UUID, error) 
 
 	vCtx, vCancel := context.WithTimeout(ctx, 1*time.Second)
 	defer vCancel()
-	global.Validate().VarCtx(vCtx, text, "min=10,max=3000")
+	global.Validator().VarCtx(vCtx, text, "min=10,max=3000")
 
 	// Check for potential LLM injection patterns in the text
 	if found, pattern := llm.DetectLlmInjection(text); found {

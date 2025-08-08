@@ -1,11 +1,15 @@
 package scrapers
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/global"
@@ -19,6 +23,11 @@ const (
 	UserAgentMacFirefox    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; rv:120.0) Gecko/20100101 Firefox/120.0"
 	UserAgentAndroidChrome = "Mozilla/5.0 (Linux; Android 10; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0 Mobile Safari/537.36"
 	UserAgentiOSSafari     = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1"
+)
+
+var (
+	ErrPageHasBeenParsed = errors.New("page has already been parsed")
+	ErrPageHasNoContent  = errors.New("page has no content")
 )
 
 var UserAgents = []string{
@@ -84,14 +93,44 @@ func (c *Content) MarshalJSON() ([]byte, error) {
 }
 
 type ScrapingResult struct {
-	Content Content `json:"content"`
-	Error   error   `json:"error,omitempty"`
+	Content  Content  `json:"content"`
+	Error    error    `json:"error,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
-func newCollector(
-	domain string, maxDepth int, async bool,
-	filter []*regexp.Regexp, breaks Delay,
-	headers map[string]string) *colly.Collector {
+type Record struct {
+	Link     string   `json:"link"`
+	Status   string   `json:"status"`
+	Error    error    `json:"error,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+func (s ScrapingResult) ToRecord() Record {
+	r := Record{
+		Link:     s.Content.Link,
+		Status:   "OK",
+		Error:    nil,
+		Warnings: nil,
+	}
+
+	if s.Error != nil {
+		if errors.Is(s.Error, ErrPageHasBeenParsed) {
+			r.Status = "SKIPPED"
+		} else {
+			r.Status = "ERROR"
+		}
+	}
+	if len(s.Warnings) > 0 {
+		r.Status = "WARNING"
+	}
+
+	return r
+}
+
+func NewCollector(domain string, maxDepth int, async bool, filter []*regexp.Regexp, breaks Delay,
+	headers map[string]string, output chan<- ScrapingResult, files map[string]struct{}) *colly.Collector {
+	hasher := md5.New()
+
 	c := colly.NewCollector(
 		colly.AllowedDomains(domain),
 		colly.URLFilters(filter...),
@@ -107,34 +146,54 @@ func newCollector(
 	})
 
 	c.OnRequest(func(r *colly.Request) {
+		hasher.Reset()
+		hasher.Write([]byte(strings.TrimLeft(r.URL.String(), "https://")))
+		hashsum := hex.EncodeToString(hasher.Sum(nil))
+		msg := global.Logger.Debug().
+			Str("state", "OnRequest").
+			Str("link", strings.TrimLeft(r.URL.String(), "https://")).
+			Str("hashsum", hashsum)
+		if _, ok := files[hashsum]; ok {
+			// Skip the request if the page has already been parsed
+			msg.Msg("Skipping parsed page")
+			output <- ScrapingResult{
+				Content: Content{Link: r.URL.String()},
+				Error:   ErrPageHasBeenParsed,
+			}
+			r.Abort()
+			return
+		}
+
 		for key, value := range headers {
 			r.Headers.Set(key, value)
 		}
-
-		global.Logger.Info().
-			Str("URL", r.URL.String()).
-			Msg("Request made")
+		msg.Msg("Visiting new page")
 	})
 
 	c.OnError(func(r *colly.Response, err error) {
 		global.Logger.Error().
 			Err(err).
+			Str("state", "OnError").
 			Int("status_code", r.StatusCode).
+			Str("response", string(r.Body)).
 			Str("link", r.Request.URL.String()).
 			Msg("Request failed")
+		output <- ScrapingResult{
+			Content: Content{Link: r.Request.URL.String()},
+			Error: fmt.Errorf(
+				"Request failed with status code %d: %w",
+				r.StatusCode, err,
+			),
+		}
 	})
 
 	c.OnResponse(func(r *colly.Response) {
-		global.Logger.Debug().
-			Str("URL", r.Request.URL.String()).
-			Int("status_code", r.StatusCode).
-			Msg("Response received")
-
 		if r.StatusCode != http.StatusOK {
 			global.Logger.Error().
-				Str("URL", r.Request.URL.String()).
+				Str("state", "OnResponse").
+				Str("link", r.Request.URL.String()).
 				Int("status_code", r.StatusCode).
-				Msg("request failed with non-200 status code")
+				Msg("Request failed with non-200 status code")
 			return
 		}
 	})

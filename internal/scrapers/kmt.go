@@ -1,8 +1,11 @@
 package scrapers
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	stde "errors"
 	"fmt"
-	"net/http"
+	"math/rand/v2"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -48,12 +51,16 @@ var KmtSeedUrls = []string{
 // - selectors: SiteSelectors defining how to extract content from the page. (use KmtSelectors for default)
 // - headers: HTTP headers to use for requests.
 // Returns an error if the scraping process fails.
-func ParseKmtOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, headers map[string]string) error {
+func ParseKmtOfficialSite(urls []string, breaks Delay, selectors SiteSelectors,
+	headers map[string]string, output chan<- ScrapingResult, files map[string]struct{}) error {
 	filters := []*regexp.Regexp{
 		regexp.MustCompile(`^https://www\.kmt\.org\.tw/search/label/%E6%96%B0%E8%81%9E%E7%A8%BF`),
 		regexp.MustCompile(`^https://www\.kmt\.org\.tw/\d{4}/\d{2}/.*\.html`),
 	}
-	collector := newCollector("www.kmt.org.tw", 2, true, filters, breaks, headers)
+	hasher := md5.New()
+
+	collector := NewCollector("www.kmt.org.tw", 2, true, filters,
+		breaks, headers, output, files)
 
 	collector.OnHTML(
 		selectors.ContentContainerSelector,
@@ -61,45 +68,102 @@ func ParseKmtOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 			urlStr := e.Request.URL.String()
 
 			if strings.Contains(urlStr, url.PathEscape("新聞稿")) {
-				links, next := parseKMTPressReleaseList(e, selectors)
+				links, next, err := parseKMTPressReleaseList(e, selectors)
+				if err != nil {
+					global.Logger.Error().
+						Err(err).
+						Str("link", urlStr).
+						Msg("Failed to parse KMT press release list")
+					output <- ScrapingResult{
+						Content: Content{Link: urlStr},
+						Error:   err,
+					}
+					return
+				}
 				for _, link := range links {
-					e.Request.Visit(link)
+					if strings.Contains(link, "www.facebook.com") ||
+						strings.Contains(link, "www.youtube.com") ||
+						strings.Contains(link, "www.instagram.com") ||
+						strings.Contains(link, "x.com") {
+						global.Logger.Debug().
+							Str("src_link", e.Request.URL.String()).
+							Str("dst_link", link).
+							Msg("Skipping social media link")
+						return
+					}
+
+					hasher.Reset()
+					hasher.Write([]byte(link))
+					if _, ok := files[hex.EncodeToString(hasher.Sum(nil))]; ok {
+						global.Logger.Debug().
+							Str("src_link", e.Request.URL.String()).
+							Str("dst_link", link).
+							Msg("Skipping already visited link")
+						return
+					}
+
+					err := e.Request.Visit(link)
+					if err != nil {
+						// omit errors that are expected
+						if stde.Is(err, colly.ErrNoURLFiltersMatch) ||
+							stde.Is(err, colly.ErrMaxDepth) ||
+							strings.Contains(err.Error(), "already visited") {
+							return
+						}
+
+						global.Logger.Error().
+							Err(err).
+							Str("src_link", e.Request.URL.String()).
+							Str("dst_link", link).
+							Msg("Failed to visit link")
+						output <- ScrapingResult{Error: fmt.Errorf(
+							"[OnHTML] failed to visit link %s: %w", link, err,
+						)}
+					}
+
+					sleep := time.Duration(rand.Int64N(int64(breaks.DelayTimeRng))) + breaks.MinDelayTime
+					global.Logger.Debug().
+						Int64("duration", int64(sleep/time.Second)).
+						Str("link", link).
+						Msg("[VisitLoop] Taking a break before visiting next link")
+					time.Sleep(sleep)
 				}
 				// new seed
 				collector.Visit(next)
 			}
-			_, err := parseKMTPressReleaseContent(e, selectors)
+			content, err := parseKMTPressReleaseContent(e, selectors)
 			if err != nil {
 				global.Logger.Error().
 					Err(err).
 					Str("link", e.Request.URL.String()).
 					Msg("Failed to parse content")
+				output <- ScrapingResult{
+					Error: err,
+				}
 				return
+			}
+			output <- ScrapingResult{
+				Content: content,
 			}
 		},
 	)
 
+	var err error
 	for _, seed := range urls {
-		err := collector.Visit(seed)
+		err = collector.Visit(seed)
 		if err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("seed_url", seed).
-				Msg("Failed to visit seed URL")
-
-			return errors.NewWithHTTPStatus(
-				http.StatusInternalServerError,
-				errors.ECPressReleaseCollectorError,
-				"failed to visit seed URL",
-				err.Error())
+			break
 		}
 	}
 	collector.Wait()
+	if err != nil {
+		return fmt.Errorf("[Seed] failed to visit seed URLs: %w", err)
+	}
 	return nil
 }
 
 // parseKMTPressReleaseList extracts links and the next page URL from the KMT press release list page.
-func parseKMTPressReleaseList(e *colly.HTMLElement, selector SiteSelectors) (links []string, next string) {
+func parseKMTPressReleaseList(e *colly.HTMLElement, selector SiteSelectors) (links []string, next string, err error) {
 	matches := regexp.MustCompile(`PageNo=(\d+)`).FindAllStringSubmatch(e.Request.URL.String(), -1)
 	pageNo := 1
 	if len(matches) > 0 {
@@ -111,7 +175,7 @@ func parseKMTPressReleaseList(e *colly.HTMLElement, selector SiteSelectors) (lin
 		global.Logger.Error().
 			Str("link", e.Request.URL.String()).
 			Msg("Failed to find timestamp in document")
-		return
+		return nil, "", fmt.Errorf("failed to find timestamp in document for link: %s", e.Request.URL.String())
 	}
 
 	links = []string{}
@@ -130,7 +194,7 @@ func parseKMTPressReleaseList(e *colly.HTMLElement, selector SiteSelectors) (lin
 		Msg("Found links")
 
 	next = fmt.Sprintf(KmtURLTmpl, url.QueryEscape(timestamp), pageNo+1)
-	return links, next
+	return links, next, nil
 }
 
 // parseKMTPressReleaseContent extracts the title, date, and content from a KMT press release page.

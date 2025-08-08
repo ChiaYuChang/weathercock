@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -12,12 +14,32 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserArticles struct {
-	DB models.Querier
+var MD5PublishedAtFormat = time.DateOnly
+
+func (s Storage) UserArticles() UserArticles {
+	return UserArticles{
+		db: s.db,
+	}
 }
 
+type UserArticles struct {
+	db models.Querier
+}
+
+func MD5(title, url string, publishAt time.Time) string {
+	hasher := md5.New()
+	hasher.Write([]byte(title))
+	hasher.Write([]byte(url))
+	hasher.Write([]byte(publishAt.UTC().Format(MD5PublishedAtFormat)))
+	md5 := hasher.Sum(nil)
+	return base64.StdEncoding.EncodeToString(md5)
+}
+
+// Insert adds a new user article to the database and returns its ID.
 func (s UserArticles) Insert(ctx context.Context, taskID uuid.UUID, title,
-	source, md5, content string, cuts []int32, publishedAt time.Time) (int32, error) {
+	source, content string, cuts []int32, publishedAt time.Time) (int32, error) {
+	md5 := MD5(title, source, publishedAt)
+
 	tsz, err := utils.TimeTo.PGTimestamptz(publishedAt)
 	if err != nil {
 		return 0, errors.ErrDBTypeConversionError.Clone().
@@ -26,7 +48,7 @@ func (s UserArticles) Insert(ctx context.Context, taskID uuid.UUID, title,
 			Warp(err)
 	}
 
-	aid, err := s.DB.InsertUserArticle(ctx, models.InsertUserArticleParams{
+	aid, err := s.db.InsertUsersArticle(ctx, models.InsertUsersArticleParams{
 		TaskID:      taskID,
 		Title:       title,
 		Source:      source,
@@ -35,35 +57,45 @@ func (s UserArticles) Insert(ctx context.Context, taskID uuid.UUID, title,
 		Cuts:        cuts,
 		PublishedAt: tsz,
 	})
-	return aid, handlePgxErr(err)
+
+	if err != nil {
+		return 0, handlePgxErr(err)
+	}
+	return aid, nil
 }
 
 // GetByID retrieves a user article by its ID.
 func (s UserArticles) GetByID(ctx context.Context, aID int32) (models.UsersArticle, error) {
-	article, err := s.DB.GetUserArticleByID(ctx, aID)
+	article, err := s.db.GetUsersArticleByID(ctx, aID)
 	return article, handlePgxErr(err)
 }
 
 // GetByTaskID retrieves a user article by its associated task ID.
 func (s UserArticles) GetByTaskID(ctx context.Context, taskID uuid.UUID) (models.UsersArticle, error) {
-	article, err := s.DB.GetUserArticleByTaskID(ctx, taskID)
+	article, err := s.db.GetUsersArticleByTaskID(ctx, taskID)
 	return article, handlePgxErr(err)
 }
 
 // GetByMD5 retrieves a user article by its MD5 hash.
 func (s UserArticles) GetByMD5(ctx context.Context, md5 string) (models.UsersArticle, error) {
-	article, err := s.DB.GetUserArticleByMD5(ctx, md5)
+	article, err := s.db.GetUsersArticleByMD5(ctx, md5)
 	return article, handlePgxErr(err)
+}
+
+func (s Storage) UserChunks() UserChunks {
+	return UserChunks{
+		db: s.db,
+	}
 }
 
 // UserChunks contains methods to manage user chunks in the database.
 type UserChunks struct {
-	DB models.Querier
+	db models.Querier
 }
 
 // Insert inserts a new user chunk into the database.
 func (s UserChunks) Insert(ctx context.Context, aID, start, offsetLeft, offsetRight, end int32) (int32, error) {
-	cID, err := s.DB.InsertUserChunk(ctx, models.InsertUserChunkParams{
+	cID, err := s.db.InsertUsersChunk(ctx, models.InsertUsersChunkParams{
 		ArticleID:   aID,
 		Start:       start,
 		OffsetLeft:  offsetLeft,
@@ -76,18 +108,18 @@ func (s UserChunks) Insert(ctx context.Context, aID, start, offsetLeft, offsetRi
 // BatchInsert inserts multiple user chunks into the database in a single batch operation.
 // It takes an article ID, a slice of paragraphs, the size of each chunk, and the overlap size.
 // It returns an error if the chunking process fails or if any of the insert operations fail.
-func (s UserChunks) BatchInsert(ctx context.Context, aID int32, paragraphs []string, size, overlap int) error {
+func (s UserChunks) BatchInsert(ctx context.Context, aID int32, paragraphs []string, size, overlap int) ([]llm.ChunkOffsets, error) {
 	offsets, err := llm.ChunckParagraphsOffsets(paragraphs, size, overlap)
 	if err != nil {
-		return errors.ErrValidationFailed.Clone().
+		return nil, errors.ErrValidationFailed.Clone().
 			WithMessage("failed to chunk paragraphs").
 			WithDetails(fmt.Sprintf("size: %d, overlap: %d", size, overlap)).
 			Warp(err)
 	}
 
-	params := make([]models.InsertUserChunksBatchParams, 0, len(offsets))
+	params := make([]models.InsertUsersChunksBatchParams, 0, len(offsets))
 	for _, offset := range offsets {
-		params = append(params, models.InsertUserChunksBatchParams{
+		params = append(params, models.InsertUsersChunksBatchParams{
 			ArticleID:   aID,
 			Start:       offset.Start,
 			OffsetLeft:  offset.OffsetLeft,
@@ -97,21 +129,26 @@ func (s UserChunks) BatchInsert(ctx context.Context, aID int32, paragraphs []str
 	}
 
 	bErr := errors.NewBatchErr()
-	s.DB.InsertUserChunksBatch(ctx, params).Exec(func(i int, err error) {
+	s.db.InsertUsersChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
 		if err != nil {
 			bErr.Add(i, handlePgxErr(err))
+		} else if cID == 0 {
+			bErr.Add(i, errors.ErrDBError.Clone().
+				WithMessage("chunk ID is zero after insertion").
+				WithDetails(fmt.Sprintf("article ID: %d, chunk: %+v", aID, params[i])))
 		}
+		offsets[i].ID = cID
 	})
 
 	if !bErr.IsEmpty() {
-		return bErr.ToError()
+		return nil, bErr.ToError()
 	}
-	return nil
+	return offsets, nil
 }
 
 // ExtractByArticleID retrieves all chunks associated with a specific article ID.
 func (s UserChunks) ExtractByArticleID(ctx context.Context, aID int32) ([]string, error) {
-	rows, err := s.DB.ExtractUserChunks(ctx, aID)
+	rows, err := s.db.ExtractUsersChunks(ctx, aID)
 	if err != nil {
 		return nil, handlePgxErr(err)
 	}
@@ -129,6 +166,36 @@ func (s UserChunks) ExtractByArticleID(ctx context.Context, aID int32) ([]string
 			WithDetails(fmt.Sprintf("article ID: %d", aID))
 	}
 	return chunks, nil
+}
+
+func (s Storage) UserEmbeddings() UserEmbeddings {
+	return UserEmbeddings{
+		db: s.db,
+	}
+}
+
+type UserEmbeddings struct {
+	db models.Querier
+}
+
+func (s UserEmbeddings) Insert(ctx context.Context, aID, cID, mID int32, embedding []float32) (int32, error) {
+	if len(embedding) != 1024 {
+		return 0, errors.ErrValidationFailed.Clone().
+			WithMessage("embedding length must be 1024").
+			WithDetails(fmt.Sprintf("got: %d", len(embedding)))
+	}
+
+	eID, err := s.db.InsertUserEmbedding(ctx, models.InsertUserEmbeddingParams{
+		ArticleID: aID,
+		ChunkID:   cID,
+		ModelID:   mID,
+		Vector:    utils.ToPgVector(embedding),
+	})
+
+	if err != nil {
+		return 0, handlePgxErr(err)
+	}
+	return eID, nil
 }
 
 // Article provides methods to manage articles in the database.
@@ -251,10 +318,15 @@ func (c Chunck) BatchInsert(ctx context.Context, aID int32, paragraphs []string,
 	}
 
 	bErr := errors.NewBatchErr()
-	c.DB.InsertChunksBatch(ctx, params).Exec(func(i int, err error) {
+	c.DB.InsertChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
 		if err != nil {
 			bErr.Add(i, handlePgxErr(err))
+		} else if cID == 0 {
+			bErr.Add(i, errors.ErrDBError.Clone().
+				WithMessage("chunk ID is zero after insertion").
+				WithDetails(fmt.Sprintf("article ID: %d, chunk: %+v", aID, params[i])))
 		}
+		offsets[i].ID = cID
 	})
 
 	if !bErr.IsEmpty() {

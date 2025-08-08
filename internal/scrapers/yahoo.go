@@ -29,7 +29,7 @@ type YahooNewsParseResult struct {
 type YahooNewsArticle struct {
 	ID          string // Unique identifier for the article
 	Title       string // Article headline/title
-	Link        string // Canonical URL of the article
+	Url         string // Canonical URL of the article
 	Author      string
 	Publisher   string
 	Description string
@@ -62,12 +62,21 @@ const (
 	DateModifiedTag  = "dateModified"
 )
 
+func Hashing(url string, result *YahooNewsParseResult) string {
+	hasher := md5.New()
+	hasher.Write([]byte(url))
+	hasher.Write([]byte(result.Article.Title))
+	hasher.Write([]byte(result.Article.Published.UTC().Format(time.RFC3339)))
+	hasher.Write([]byte(result.Article.Modified.UTC().Format(time.RFC3339)))
+	return base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+}
+
 func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 	if resp.StatusCode != http.StatusOK {
 		err := errors.NewWithHTTPStatus(
 			resp.StatusCode,
 			resp.StatusCode,
-			fmt.Sprintf("Status: %s, Failed to fetch Yahoo News article", resp.Status),
+			fmt.Sprintf("status: %s, failed to fetch Yahoo News article", resp.Status),
 			fmt.Sprintf("url: %s", resp.Request.URL.String()),
 		)
 
@@ -91,14 +100,8 @@ func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 		}
 	}
 	defer reader.Close()
-
 	result := ParseYahooNewsBody(reader)
-	hasher := md5.New()
-	hasher.Write([]byte(resp.Request.URL.Path))
-	hasher.Write([]byte(result.Article.Title))
-	hasher.Write([]byte(result.Article.Published.UTC().Format(time.RFC3339)))
-	hasher.Write([]byte(result.Article.Modified.UTC().Format(time.RFC3339)))
-	result.Article.ID = base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+	result.Article.ID = Hashing(resp.Request.URL.String(), result)
 	return result
 }
 

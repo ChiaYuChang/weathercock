@@ -12,6 +12,7 @@ const (
 	ECUnknown         = 000
 	ECMarshalFailed   = 001
 	ECUnmarshalFailed = 002
+	ECIOError         = 003
 )
 
 // HTTP 400 - 499: Client errors

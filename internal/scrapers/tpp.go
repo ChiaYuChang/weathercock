@@ -3,7 +3,10 @@ package scrapers
 
 import (
 	"compress/gzip"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -47,7 +50,8 @@ var TppSeedUrls = []string{
 // - selectors: SiteSelectors defining how to extract content from the page. (use TppSelectors for default)
 // - headers: HTTP headers to use for requests.
 // Returns an error if the scraping process fails.
-func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, headers map[string]string) error {
+func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, headers map[string]string, output chan<- ScrapingResult, files map[string]struct{}) error {
+	defer close(output)
 	total, err := retrieveTppLastPage("https://www.tpp.org.tw/news", headers)
 	if err != nil {
 		global.Logger.Error().
@@ -68,7 +72,8 @@ func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 		regexp.MustCompile(`^https:\/\/www\.tpp\.org\.tw\/newsdetail\/\d{4}$`),
 		regexp.MustCompile(`^https:\/\/www\.tpp\.org\.tw\/news.*`),
 	}
-	collector := newCollector("www.tpp.org.tw", 2, true, filters, breaks, headers)
+	collector := NewCollector("www.tpp.org.tw", 2, true, filters,
+		breaks, headers, output, files)
 
 	collector.OnHTML(
 		selectors.ContentContainerSelector,
@@ -107,6 +112,12 @@ func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 					global.Logger.Error().
 						Str("link", content.Link).
 						Msg("fallback content selector not found, cannot parse content")
+					err := errors.ErrNoContent.Clone()
+					err.Details = append(err.Details, fmt.Sprintf("link: %s", content.Link))
+					output <- ScrapingResult{
+						Content: Content{Link: content.Link},
+						Error:   err,
+					}
 					return
 				}
 
@@ -131,6 +142,10 @@ func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 				global.Logger.Warn().
 					Str("link", content.Link).
 					Msg("no content found")
+				output <- ScrapingResult{
+					Content: Content{Link: content.Link},
+					Warnings: []string{"no content found"},
+				}
 				return
 			}
 
@@ -142,6 +157,9 @@ func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 				Str("date", content.Date.Format(time.DateOnly)).
 				Str("content", string(r[:min(100, len(r))])).
 				Msg("successfully parsed page")
+			output <- ScrapingResult{
+				Content: content,
+			}
 		},
 	)
 
@@ -158,11 +176,32 @@ func ParseTppOfficialSite(urls []string, breaks Delay, selectors SiteSelectors, 
 					global.Logger.Info().Msgf("Found link: %s", link)
 				}
 			}
+
+			hasher := md5.New()
+			hasher.Write([]byte(link))
+			hashsum := hex.EncodeToString(hasher.Sum(nil))
+			if _, ok := files[hashsum]; ok {
+				global.Logger.Debug().
+					Str("link", link).
+					Msg("Skipping parsed page")
+				output <- ScrapingResult{
+					Content: Content{Link: link},
+					Error:   ErrPageHasBeenParsed,
+				}
+				return
+			}
+
 			e.Request.Visit(e.Request.AbsoluteURL(link))
+			sleep := time.Duration(rand.Int64N(int64(breaks.DelayTimeRng))) + breaks.MinDelayTime
+			global.Logger.Debug().
+				Int64("duration", int64(sleep/time.Second)).
+				Str("link", link).
+				Msg("[VisitLoop] Taking a break before visiting next link")
+			time.Sleep(sleep)
 		},
 	)
 
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= total; i++ {
 		// if i%10 == 0 {
 		// 	delay := breaks.LongBreakMinTime + time.Duration(rand.IntN(int(breaks.LongBreakRandomRange.Seconds())))*time.Second
 		// 	global.Logger.Info().

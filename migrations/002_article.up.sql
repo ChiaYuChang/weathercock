@@ -44,9 +44,11 @@ CREATE TABLE embeddings (
     model_id   INTEGER      NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     vector     VECTOR(1024) NOT NULL,
     created_at TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(article_id, chunk_id, model_id, vector)
+    UNIQUE(article_id, chunk_id, model_id)
 );
 
+CREATE INDEX embeddings_vector_hnsw_idx ON embeddings 
+    USING hnsw (vector vector_cosine_ops);
 
 CREATE TABLE users.articles (
     id            SERIAL      PRIMARY KEY,
@@ -80,5 +82,9 @@ CREATE TABLE users.embeddings (
     model_id   INTEGER      NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     vector     VECTOR(1024) NOT NULL,
     created_at TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(article_id, chunk_id, model_id, vector)
+    UNIQUE(article_id, chunk_id, model_id)
 );
+
+-- Create HNSW index for efficient vector similarity searches
+CREATE INDEX embeddings_vector_hnsw_idx ON users.embeddings 
+    USING hnsw (vector vector_cosine_ops);

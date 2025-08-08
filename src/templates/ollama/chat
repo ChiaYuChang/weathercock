@@ -1,0 +1,69 @@
+{{- if gt (len .Tools) 0 -}}
+    <|start_header_id|>system<|end_header_id|>
+    {{ if .System }}
+        {{ .System }}
+    {{- else }}
+        You are a function calling AI model. 
+    {{ end -}}
+
+    You are provided with function signatures within <tools> </tools> XML tags. You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions. Here are the available tools:
+    <tools>
+        {{ json .Tools }}
+    </tools>
+
+    For each function call return a json object with function name and arguments within <tool_call> </tool_call> tags with the following schema:
+    <tool_call>
+        {"arguments": <args-dict>, "name": <function-name>}
+    </tool_call><|eot_id|>
+
+{{- else if .System -}}
+    <|start_header_id|>system<|end_header_id|>
+
+    {{ .System }}<|eot_id|>
+{{- else }}
+{{- end }}
+
+{{- $prevRole := "" }}
+{{- range $i, $m := .Messages }}
+    {{- if eq $m.Role "tool" -}}
+        {{- if ne $prevRole "tool" -}}
+            <|start_header_id|>ipython<|end_header_id|>
+        {{ end -}}
+
+        <tool_response>
+        {{ $m.Content }}
+        </tool_response>
+    {{- else }}
+        {{- if eq $prevRole "tool" }}<|eot_id|>{{- end }}
+        
+        {{- if eq $m.Role "user" -}}
+            <|start_header_id|>user<|end_header_id|>
+        {{ $m.Content }}<|eot_id|>{{- end }}
+    
+        {{- if eq $m.Role "assistant" -}}
+            <|start_header_id|>assistant<|end_header_id|>
+            {{ with $m.ToolCalls }}
+                {{- range $tc := . }}
+                    <tool_call>
+                    {"name": "{{ $tc.Function.Name }}", "arguments": {{ json $tc.Function.Arguments }}}
+                    </tool_call>
+                {{- end }}
+            {{- else }}
+                {{ $m.Content }}
+            {{- end }}
+            <|eot_id|>{{- end }}
+        {{- end }}
+    {{- $prevRole = $m.Role }}
+{{- end }}
+
+{{- if eq $prevRole "tool" }}<|eot_id|>{{- end -}}
+
+<|start_header_id|>assistant<|end_header_id|>
+{{ .Response }}
+{{- if .ToolCalls }}
+    <tool_call>
+    {{- range .ToolCalls -}}
+        {"name": "{{ .Function.Name }}", "arguments": {{ json .Function.Arguments }}}
+    {{- end }}
+    </tool_call>
+{{- end }}

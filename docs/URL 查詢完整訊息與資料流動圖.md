@@ -5,11 +5,15 @@ Frontend
   ↓ (HTMX POST)
 Backend (/api/v1/task/url)
   ↓
+NATS Publish → task.create { user_id, url }
+  ↓
 Insert → users.tasks + return task_id
   ↓
 NATS Publish → task.scrape { task_id, url }
   ↓
 Respond → HX-Push-URL: /task/{task_id}
+  ↓
+NATS Publish → task.logs { task_id, log }
 ```
 
 goals:
@@ -21,8 +25,6 @@ goals:
 ```
 NATS Subscribe: task.scrape
   ↓
-以 task.id 自 DB 查找 task.original_input (URL)
-  ↓
 爬取 Yahoo 新聞頁面
   ↓
 儲存至 user.article、user.chunk
@@ -30,7 +32,9 @@ NATS Subscribe: task.scrape
 Write Valkey:
   ├ task:{task_id}:[]新聞頁面文字
   ↓
-NATS Publish → task.extract.keyword { task_id }
+NATS Publish → task.extract_keyword { task_id }
+  ↓
+NATS Publish → task.logs { task_id, log }
 ```
 
 goals:
@@ -41,15 +45,23 @@ goals:
 ### 3. 關鍵字抽取 (keyword extraction worker)
 
 ```
-NATS Subscribe: task.extract.keyword
+NATS Subscribe: task.extract_keyword
   ↓
 以 task.id 自 valkey 讀取 task:{task_id}:新聞頁面文字
   ↓
 使用線上/本地模型抽取關鍵字
   ↓
 寫入 Valkey: task:{task_id}:關鍵字
+  ↓
+NATS Publish → task.logs { task_id, log }
 ```
 goals:
 - 從新聞頁面文字中抽取關鍵字並儲存至 Valkey
 - 使用者可以自 Web API 以 task_id 輪詢關鍵字 
 - 代使用者新增/刪減關鍵字後再寫入 DB
+
+
+### 4. 儲存 Log
+NATS Subscribe: task.logs
+  ↓
+寫入 log file

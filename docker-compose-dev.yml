@@ -26,6 +26,31 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin
+  test:
+      build:
+        context: .
+        dockerfile: Dockerfile.dev
+        args:
+          USERNAME: ${DEV_USERNAME}
+          USER_UID: ${DEV_UID}
+          USER_GID: ${DEV_GID}
+      container_name: weathercock-dev-test
+      working_dir: /home/${DEV_USERNAME}/app
+      volumes:
+        - .:/home/${DEV_USERNAME}/app
+      tty: true
+      stdin_open: true
+      command: sleep infinity
+      environment:
+        DISPLAY: ${DEV_DISPLAY}
+        WAYLAND_DISPLAY: ${DEV_WAYLAND_DISPLAY}
+      depends_on:
+        - postgres
+        - valkey
+        - nats
+      secrets:
+        - postgres_admin
+        - postgres_app_user
 
 volumes:
   nui_data:
@@ -33,4 +58,4 @@ volumes:
 
 secrets:
   pgadmin:
-    file: ${PGADMIN_DEFAULT_PASSWORD_FILE}
+    file: .secrets/pgadmin4

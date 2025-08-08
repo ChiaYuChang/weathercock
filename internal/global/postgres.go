@@ -1,11 +1,16 @@
 package global
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"strings"
+
+	"github.com/ChiaYuChang/weathercock/pkgs/utils"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/spf13/viper"
 )
 
 // PostgresConfig holds the configuration for connecting to a PostgreSQL database.
@@ -23,11 +28,23 @@ type PostgresConfig struct {
 	SSLMode      bool   `json:"sslmode"                                                mapstructure:"sslmode"`
 }
 
+func LoadPostgresConfig() *PostgresConfig {
+	return &PostgresConfig{
+		Host:         viper.GetString("POSTGRES_HOST"),
+		Port:         viper.GetInt("POSTGRES_PORT"),
+		Username:     viper.GetString("POSTGRES_USER"),
+		Password:     viper.GetString("POSTGRES_PASSWORD"),
+		PasswordFile: viper.GetString("POSTGRES_PASSWORD_FILE"),
+		Database:     viper.GetString("POSTGRES_APP_DB"),
+		SSLMode:      viper.GetBool("POSTGRES_SSLMODE"),
+	}
+}
+
 // MarshalJSON is a custom JSON marshaller that masks the password field.
 func (c PostgresConfig) MarshalJSON() ([]byte, error) {
 	password := c.Password
 	if c.PasswordFile != "" {
-		password = strings.Repeat("*", len(c.Password)+rand.IntN(5))
+		password = utils.Mask(password)
 	}
 
 	type Alias PostgresConfig
@@ -69,8 +86,8 @@ func (c *PostgresConfig) ReadPasswordFile() error {
 	return nil
 }
 
-// ConnectionString returns the PostgreSQL connection string based on the configuration.
-func (c *PostgresConfig) ConnectionString() string {
+// URL returns the PostgreSQL connection string based on the configuration.
+func (c *PostgresConfig) URL() string {
 	sslmode := "disable"
 	if c.SSLMode {
 		sslmode = "enable"
@@ -78,6 +95,28 @@ func (c *PostgresConfig) ConnectionString() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		c.Username, c.Password, c.Host, c.Port, c.Database, sslmode)
+}
+
+// URLString returns the PostgreSQL connection string based on the configuration.
+// It masks the password in the connection string.
+func (c *PostgresConfig) URLString() string {
+	sslmode := "disable"
+	if c.SSLMode {
+		sslmode = "enable"
+	}
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		c.Username, strings.Repeat("●", rand.IntN(10)+5), // Mask password in URL
+		c.Host, c.Port, c.Database, sslmode)
+}
+
+// Pool returns a connection pool for the PostgreSQL database.
+func (c *PostgresConfig) Pool(ctx context.Context) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx, c.URL())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Postgres: %w", err)
+	}
+	return pool, nil
 }
 
 // String returns a JSON representation of the PostgresConfig.
@@ -93,7 +132,7 @@ func (c PostgresConfig) String() string {
 
 // Validate checks the PostgresConfig for required fields and conditions.
 func (c *PostgresConfig) Validate() error {
-	v := Validate()
+	v := Validator()
 
 	if err := v.Struct(c); err != nil {
 		return fmt.Errorf("invalid Postgres configuration: %w", err)

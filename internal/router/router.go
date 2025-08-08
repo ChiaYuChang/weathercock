@@ -13,6 +13,7 @@ import (
 	"github.com/ChiaYuChang/weathercock/internal/global"
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"github.com/ChiaYuChang/weathercock/internal/storage"
+	workers "github.com/ChiaYuChang/weathercock/internal/workers"
 )
 
 type Article struct {
@@ -64,7 +65,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		u := r.Form["query_url"][0]
 		vCtx, vCancel := context.WithTimeout(r.Context(), 1*time.Second)
 		defer vCancel()
-		err := global.Validate().VarCtx(vCtx, u, "url,required")
+		err := global.Validator().VarCtx(vCtx, u, "url,required")
 		if err != nil {
 			global.Logger.Error().
 				Err(err).
@@ -92,6 +93,31 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		}
 
 		// TODO: push to task.create channel
+		payload, err := json.Marshal(workers.ScrapeTaskPayload{
+			TaskID: taskID,
+			URL:    u,
+		})
+		if err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("query_url", u).
+				Msg("Failed to marshal scrape task payload")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Failed to create task from URL"))
+			return
+		}
+
+		if err := global.NATS().Publish(workers.Scrape, payload); err != nil {
+			global.Logger.Error().
+				Err(err).
+				Str("path", r.URL.Path).
+				Str("query_url", u).
+				Msg("Failed to publish scrape task")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Failed to create task from URL"))
+			return
+		}
 
 		w.Header().Set("HX-PUSH-URL", fmt.Sprintf("/task/%s", taskID.String()))
 		w.WriteHeader(http.StatusOK)
@@ -186,7 +212,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		// Validate the task_id format
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := global.Validate().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+		if err := global.Validator().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
 			global.Logger.Error().
 				Err(err).
 				Str("path", r.URL.Path).
@@ -202,7 +228,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 
 		// Simulate successful fetch
 		buff := bytes.NewBuffer([]byte{})
-		_ = global.Templates.ExecuteTemplate(buff, "ui-content", TestArticle)
+		_ = global.Templates().ExecuteTemplate(buff, "ui-content", TestArticle)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(buff.Bytes())
@@ -213,7 +239,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := global.Validate().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+		if err := global.Validator().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
 			global.Logger.Error().
 				Err(err).
 				Str("path", r.URL.Path).

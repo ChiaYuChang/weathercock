@@ -74,8 +74,8 @@ volumes:
 
 secrets:
   postgres_admin:
-    file: ${POSTGRES_PASSWORD_FILE}
+    file: .secrets/postgres_admin
   postgres_app_user:
-    file: ${POSTGRES_APP_PASSWORD_FILE}
+    file: .secrets/postgres_app
   valkey_acl:
     file: ${VALKEY_ACL_FILE}

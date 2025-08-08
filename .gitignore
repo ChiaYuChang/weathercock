@@ -24,3 +24,8 @@ pkgs/pb
 # others
 .secrets/
 configs/
+
+# data
+data/
+.devcontainer/
+GEMINI.md

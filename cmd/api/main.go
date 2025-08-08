@@ -11,12 +11,7 @@ import (
 
 func main() {
 	// Initialize the logger
-	global.InitTestLogger()
-	if err := global.InitTemplateRepo(); err != nil {
-		global.Logger.Fatal().
-			Err(err).
-			Msg("Failed to initialize template repository")
-	}
+	global.LoadConfigs(".env", "env", []string{"."})
 
 	host := "localhost"
 	port := 8080

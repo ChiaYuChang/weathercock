@@ -10,7 +10,7 @@ import (
 
 func NormalizeString(s string) string {
 	s = ReplaceNonBreakingSpaces(s)
-	s = ConvertFullwidthToASCII(s)
+	// s = ConvertFullwidthToASCII(s)
 	s = RemoveSpace(s)
 	s = RemoveInvisibleChars(s)
 	return s
@@ -119,4 +119,11 @@ func Split(text string, cuts []int) []string {
 		head = tail
 	}
 	return result
+}
+
+func Mask(pwd string) string {
+	if len(pwd) <= 10 {
+		return strings.Repeat("●", len(pwd))
+	}
+	return pwd[:5] + strings.Repeat("●", min(len(pwd)-10, 10)) + pwd[len(pwd)-5:]
 }

@@ -2,9 +2,9 @@
 
 # Read the .secrets/pgadmin file
 username=${POSTGRES_USER:-"pgadmin"}
-secret=`cat ${POSTGRES_PASSWORD_FILE}`
-host="${POSTGRES_HOST:-"localhost"}"
-port="${POSTGRES_PORT:-"5432"}"
+secret=`cat ${POSTGRES_PASSWORD_FILE:-.secrets/postgres_admin}`
+host=${POSTGRES_HOST:-"localhost"}
+port=${POSTGRES_PORT:-"5432"}
 database=${POSTGRES_APP_DB:-"app"}
 sslmode="${POSTGRES_SSLMODE:-"disable"}"
 migrations=${MIGRATIONS_PATH:-"./migrations"}

@@ -6,6 +6,7 @@
     "@tailwindcss/cli": "^4.1.7",
     "@tailwindcss/vite": "^4.1.8",
     "alpinejs": "^3.14.9",
+    "genkit-cli": "^1.16.0",
     "htmx.org": "^2.0.4",
     "tailwindcss": "^4.1.8",
     "vite": "^6.3.5"

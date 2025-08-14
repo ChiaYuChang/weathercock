@@ -1,22 +1,42 @@
 FROM golang:1.24
 
-ARG USERNAME
-ARG USER_UID
-ARG USER_GID=${USER_UID}
+ARG USERNAME=user
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG NODE_VERSION=22.18.0
+ENV NVM_DIR=/home/${USERNAME}/.nvm
 
 RUN groupadd -g ${USER_GID} ${USERNAME} && \
-    useradd -m -u ${USER_UID} -g ${USER_GID} ${USERNAME} && \
-    apt-get update && apt-get install -y git curl sudo && \
+    useradd -m -u ${USER_UID} -g ${USER_GID} ${USERNAME}
+RUN apt-get update && apt-get install -y git curl sudo && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/${USERNAME}/app
-RUN chown -R ${USER_UID}:${USER_GID} /home/${USERNAME}/
-RUN go install github.com/go-task/task/v3/cmd/task@latest
-RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+RUN chown -R ${USER_UID}:${USER_GID} /home/${USERNAME}
+
+USER ${USERNAME}
+
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION} && \
+    . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION} && \
+    . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION} && \
+    nvm use default && \
+    npm install -g npm@latest && \
+    npm install -g genkit-cli
+
+RUN echo "\nexport NVM_DIR=/home/${USERNAME}/.nvm" >> /home/${USERNAME}/.bashrc && \
+    echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> /home/${USERNAME}/.bashrc && \
+    echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >> /home/${USERNAME}/.bashrc
 
 ENV GOPATH=/home/${USERNAME}/go
 ENV PATH="${GOPATH}/bin:${PATH}"
 
-USER ${USERNAME}
+RUN go install golang.org/x/tools/gopls@latest \
+    && go install honnef.co/go/tools/cmd/staticcheck@latest \
+    && go install golang.org/x/lint/golint@latest \
+    && go install github.com/go-delve/delve/cmd/dlv@latest \
+    && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+RUN go install github.com/go-task/task/v3/cmd/task@latest
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 CMD ["sleep", "infinity"]

@@ -5,52 +5,72 @@ services:
     image: ${NUI_IMAGE}:${NUI_TAG}
     container_name: weathercock-dev-nui
     restart: always
-    depends_on:
-      - nats
     ports:
       - "${NUI_PORT}:31311"
+    networks:
+      - weathercock-net
     volumes:
       - nui_data:/db
+    depends_on:
+      - nats
   pgadmin:
     image: ${PGADMIN_IMAGE}:${PGADMIN_TAG}
     container_name: weathercock-dev-pgadmin
     restart: always
-    depends_on:
-      - postgres
     secrets:
       - pgadmin
     ports:
       - "${PGADMIN_PORT}:80"
+    networks:
+      - weathercock-net
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin
-  test:
-      build:
-        context: .
-        dockerfile: Dockerfile.dev
-        args:
-          USERNAME: ${DEV_USERNAME}
-          USER_UID: ${DEV_UID}
-          USER_GID: ${DEV_GID}
-      container_name: weathercock-dev-test
-      working_dir: /home/${DEV_USERNAME}/app
-      volumes:
-        - .:/home/${DEV_USERNAME}/app
-      tty: true
-      stdin_open: true
-      command: sleep infinity
-      environment:
-        DISPLAY: ${DEV_DISPLAY}
-        WAYLAND_DISPLAY: ${DEV_WAYLAND_DISPLAY}
-      depends_on:
-        - postgres
-        - valkey
-        - nats
-      secrets:
-        - postgres_admin
-        - postgres_app_user
+  development:
+    image: weathercock-dev:1.0
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.dev
+    #   tag: cychang134679/weathercock-dev:vsc
+    #   args:
+    #     USERNAME: ${DEV_USERNAME}
+    #     USER_UID: ${DEV_UID}
+    #     USER_GID: ${DEV_GID}
+    container_name: weathercock-dev-app
+    working_dir: /home/${DEV_USERNAME}/app
+    tty: true
+    stdin_open: true
+    ports:
+      - "${GENKIT_UI_PORT}:4000"
+      - "${TELEMETRY_PORT}:4033"
+    networks:
+      - weathercock-net
+    secrets:
+      - postgres_admin
+      - postgres_app_user
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/home/${DEV_USERNAME}/app
+    environment:
+      MODE: "${MODE}"
+      PROJECT_NAME: ${PROJECT_NAME}
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:${JAEGER_OTEL_PORT}"
+      OTEL_EXPORTER_OTLP_INSECURE: true
+      OTEL_SERVICE_NAME: "${PROJECT_NAME}-dev"
+      DISPLAY: ${DEV_DISPLAY}
+      WAYLAND_DISPLAY: ${DEV_WAYLAND_DISPLAY}
+    command: sleep infinity
+    depends_on:
+      - postgres
+      - valkey
+      - nats
+      - jaeger
 
 volumes:
   nui_data:

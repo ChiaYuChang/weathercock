@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Singleton is a generic type that holds a single instance of a type T.
@@ -303,6 +304,8 @@ func Validator() *validator.Validate {
 	return validate.instance
 }
 
+var Tracer trace.Tracer
+
 // ReadDotEnvFile reads a dotfile configuration using Viper.
 func ReadDotEnvFile(fname, ftype string, fpath []string) error {
 	viper.SetConfigName(fname)
@@ -327,6 +330,8 @@ func LoadConfigs(fname, ftype string, fpath []string) error {
 // InitBaseLogger initializes the base logger for the application.
 func InitBaseLogger() zerolog.Logger {
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+
+	mode = utils.DefaultIfZero(viper.GetString("MODE"), "dev")
 	logger = logger.Level(utils.IfElse(
 		mode == "dev",
 		zerolog.DebugLevel,

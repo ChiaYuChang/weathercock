@@ -1,312 +1,158 @@
 package llm_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
+	"github.com/ChiaYuChang/weathercock/internal/llm/gemini"
+	"github.com/ChiaYuChang/weathercock/internal/llm/ollama"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genai"
 )
 
-func TestChunckOffsets(t *testing.T) {
-	raw, err := os.ReadFile("./test_text001.txt")
-	require.NoError(t, err, "Failed to read test text file")
-	text := string(raw)
-	require.NotEmpty(t, text, "Test text should not be empty")
-
-	tcs := []struct {
-		ChunkSize int
-		Overlap   int
-	}{
-		{ChunkSize: 256, Overlap: 32},
-		{ChunkSize: 128, Overlap: 16},
-		{ChunkSize: 64, Overlap: 8},
-		{ChunkSize: 32, Overlap: 4},
-		{ChunkSize: 16, Overlap: 2},
-	}
-	for _, tc := range tcs {
-		t.Run(
-			fmt.Sprintf("ChunkSize=%d,Overlap=%d", tc.ChunkSize, tc.Overlap),
-			func(t *testing.T) {
-				offsets, err := llm.ChunckOffsets(text, tc.ChunkSize, tc.Overlap)
-				require.NoError(t, err, "ChunckOffsets should not return an error")
-				builder := strings.Builder{}
-				for _, off := range offsets {
-					_, _, unique, _ := llm.ExtractChunk(text, off)
-					builder.WriteString(unique)
-				}
-				require.Equal(t, text, builder.String(), "Rebuilt text should match original text")
-			},
-		)
-	}
-}
-
-func TestChunckParagraphsOffsets(t *testing.T) {
-	raw, err := os.ReadFile("./test_text002.txt")
-	require.NoError(t, err, "Failed to read test text file")
-
-	paragraphs := strings.Split(string(raw), "\n\n")
-	require.NotEmpty(t, paragraphs, "Test paragraphs should not be empty")
-	for i, p := range paragraphs {
-		paragraphs[i] = strings.TrimSpace(p)
-	}
-
-	article := strings.Join(paragraphs, "")
-	tcs := []struct {
-		ChunkSize int
-		Overlap   int
-	}{
-		{ChunkSize: 256, Overlap: 32},
-		{ChunkSize: 128, Overlap: 16},
-		{ChunkSize: 64, Overlap: 8},
-		{ChunkSize: 32, Overlap: 4},
-		{ChunkSize: 16, Overlap: 2},
-	}
-	for _, tc := range tcs {
-		t.Run(
-			fmt.Sprintf("ChunkSize=%d,Overlap=%d", tc.ChunkSize, tc.Overlap),
-			func(t *testing.T) {
-				offsets, err := llm.ChunckParagraphsOffsets(paragraphs, tc.ChunkSize, tc.Overlap)
-				require.NoError(t, err, "ChunckParagraphsOffsets should not return an error")
-				builder := strings.Builder{}
-				for _, off := range offsets {
-					_, _, unique, _ := llm.ExtractChunk(article, off)
-					builder.WriteString(unique)
-				}
-				require.Equal(t, article, builder.String(), "Rebuilt text should match original paragraphs")
-			},
-		)
-	}
-}
-
-func TestChuncking(t *testing.T) {
-	raw, err := os.ReadFile("./test_text001.txt")
-	require.NoError(t, err, "Failed to read test text file")
-	text := string(raw)
-	require.NotEmpty(t, text, "Test text should not be empty")
-
-	tcs := []struct {
-		ChunkSize int
-		Overlap   int
-	}{
-		{ChunkSize: 4096, Overlap: 512},
-		{ChunkSize: 1024, Overlap: 128},
-		{ChunkSize: 512, Overlap: 64},
-		{ChunkSize: 256, Overlap: 32},
-		{ChunkSize: 128, Overlap: 16},
-		{ChunkSize: 64, Overlap: 8},
-		{ChunkSize: 32, Overlap: 4},
-		{ChunkSize: 16, Overlap: 2},
-	}
-
-	for _, tc := range tcs {
-		t.Run(
-			fmt.Sprintf("ChunkSize=%d,Overlap=%d", tc.ChunkSize, tc.Overlap),
-			func(t *testing.T) {
-				chunks, err := llm.Chunck(text, tc.ChunkSize, tc.Overlap)
-				require.NoError(t, err, "Chuncking should not return an error")
-				rebuild := strings.Builder{}
-				for _, chunk := range chunks {
-					rebuild.WriteString(chunk[1])
-				}
-				require.Equal(t, text, rebuild.String(), "Rebuilt text should match original text")
-			},
-		)
-	}
-
-	// Test with invalid parameters
-	_, err = llm.Chunck("", 0, 0)
-	require.Error(t, err, "Chuncking with invalid parameters should return an error")
-
-	_, err = llm.Chunck(text, 32, 32)
-	require.Error(t, err, "Chuncking with invalid overlap should return an error")
-}
-
-func TestChunckParagraphs(t *testing.T) {
-	raw, err := os.ReadFile("./test_text002.txt")
-	require.NoError(t, err, "Failed to read test text file")
-
-	paragraphs := strings.Split(string(raw), "\n\n")
-	require.NotEmpty(t, paragraphs, "Test paragraphs should not be empty")
-	for i, p := range paragraphs {
-		paragraphs[i] = strings.TrimSpace(p)
-	}
-
-	tcs := []struct {
-		ChunkSize int
-		Overlap   int
-	}{
-		{ChunkSize: 256, Overlap: 32},
-		{ChunkSize: 128, Overlap: 16},
-		{ChunkSize: 64, Overlap: 8},
-		{ChunkSize: 32, Overlap: 4},
-		{ChunkSize: 16, Overlap: 2},
-	}
-	for _, tc := range tcs {
-		t.Run(
-			fmt.Sprintf("ChunkSize=%d,Overlap=%d", tc.ChunkSize, tc.Overlap),
-			func(t *testing.T) {
-				chunks, err := llm.ChunckParagraphs(paragraphs, 64, 16)
-				require.NoError(t, err, "Chuncking paragraphs should not return an error")
-				builder := strings.Builder{}
-				for _, chunk := range chunks {
-					builder.WriteString(chunk[1])
-				}
-				require.Equal(t, strings.Join(paragraphs, ""), builder.String(), "Rebuilt text should match original paragraphs")
-			},
-		)
-	}
-}
-
 func TestGemini(t *testing.T) {
-	apikey, err := os.ReadFile("/home/cychang/Private/Gemini")
-	require.NoError(t, err, "Failed to read Gemini API key file")
-	apikey = bytes.TrimSpace(apikey)
+	var cli llm.LLM
+	var err error
+	cli, err = gemini.Gemini(
+		context.Background(),
+		gemini.WithAPIKey(os.Getenv("GEMINI_API_KEY")),
+	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cli, err := llm.NewGemini(ctx, &genai.ClientConfig{
-		APIKey:  string(apikey),
-		Backend: genai.BackendGeminiAPI,
-	})
-	require.NoError(t, err, "Failed to create Gemini client")
-	require.NotNil(t, cli, "Gemini client should not be nil")
-
-	chat := cli.ChatCompletion()
-
-	user := "user-123"
-	model := "gemini-2.5-flash-lite-preview-06-17"
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"answer": map[string]interface{}{
-				"type":        "string",
-				"description": "The answer to the user's question",
-			},
-		},
-		"required":             []string{"answer"},
-		"additionalProperties": false,
+	if err != nil {
+		// If we can't connect or the models aren't found, we skip the test.
+		t.Skipf("Skipping Gemini tests: could not connect to gemini API or models not found. Error: %v", err)
 	}
+	require.NotNil(t, cli)
 
-	resp, err := chat.New(ctx, model, &llm.ChatCompletionRequest{
-		Model: model,
-		Messages: []llm.ChatCompletionMessage{
-			llm.NewSystemMessage(
-				"",
-				"you are a teacher. You answer questions in a concise and clear manner.",
-				"input format: {\"question\": \"your question\"}",
-				"output format: {\"answer\": \"your answer\"}",
-			),
-			llm.NewUserMessage(
-				user,
-				"{\"question\": \"What is the capital of Taiwan?\"}",
-			),
-		},
-		ModelOptions: llm.ModelOptions{
-			Temperature:     1.0,
-			MaxOutputTokens: 1024,
-		},
-		Schema: schema,
+	t.Run("Generate", func(t *testing.T) {
+		resp, err := cli.Generate(&llm.GenerateRequest{
+			Context: context.Background(),
+			Messages: []llm.Message{
+				{
+					Role: llm.RoleSystem,
+					Content: []string{
+						"你是一個笑話大師，擅長依據觀眾需求回應有趣的笑話",
+					},
+				},
+				{
+					Role: llm.RoleUser,
+					Content: []string{
+						"請說一個生物學相關的笑話",
+						"請用繁體中文回答",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		t.Log(resp.Outputs)
 	})
-	require.NoError(t, err, "Chat completion should not return an error")
-	require.NotNil(t, resp, "Chat completion response should not be nil")
-	require.NotEmpty(t, resp.ID, "Chat completion response ID should not be empty")
 
-	msg := resp.Messages[0]
-	require.NotEmpty(t, msg.Content(), "Chat completion message content should not be empty")
-	t.Logf("Role=%s, Content=%s", msg.Role(), msg.Content())
+	t.Run("Embed", func(t *testing.T) {
+		var dim int32 = 1024
+		inputs := []llm.EmbedInput{
+			llm.NewSimpleText("Gemini是由Google開發的生成式人工智慧聊天機器人。它基於同名的Gemini系列大型語言模型。是應對OpenAI公司開發的ChatGPT聊天機器人的崛起而開發的。其在2023年3月以有限的規模推出，2023年5月擴展到更多個國家。2024年2月8日從Bard更名為Gemini。"),
+			llm.NewSimpleText("Gemini CLI 在程式編寫方面表現出色，但它的功能遠不止於此。它是一款多功能、本機運作的工具，協助開發者處理從內容生成、問題解決，到深入研究和任務管理等各種任務。"),
+			llm.NewSimpleText("The Google Gen AI SDK provides a unified interface to Gemini 2.5 Pro and Gemini 2.0 models through both the Gemini Developer API and the Gemini API on Vertex AI. With a few exceptions, code that runs on one platform will run on both. This means that you can prototype an application using the Gemini Developer API and then migrate the application to Vertex AI without rewriting your code."),
+		}
 
-	ans := map[string]string{}
-	err = json.NewDecoder(strings.NewReader(msg.Content()[0])).Decode(&ans)
-	require.NoError(t, err, "Failed to decode chat completion message content")
-	require.NotEmpty(t, ans["answer"], "Chat completion answer should not be empty")
-	t.Logf("Answer: %s", ans["answer"])
+		resp, err := cli.Embed(&llm.EmbedRequest{
+			Ctx:    context.Background(),
+			Inputs: inputs,
+			Config: &genai.EmbedContentConfig{
+				TaskType:             gemini.EmbedTaskRetrivalDocument,
+				OutputDimensionality: &dim,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Embeddings, len(inputs))
+		for _, embed := range resp.Embeddings {
+			require.Equal(t, llm.EmbedStateOk, embed.State)
+			require.Equal(t, int(dim), embed.Dim())
+			t.Log(embed)
+		}
+	})
 }
 
-// func TestOllamaChat(t *testing.T) {
-// 	prompt := `You are a keyword extraction expert specializing in Traditional Chinese news articles. Your task is to extract meaningful keywords that best represent the article’s main themes, significant entities, and key actions or concepts.
-// Guidelines:
-// 1. Context and Relevance:
-//     - Focus on cultural and linguistic nuances specific to Traditional Chinese, especially as used in Taiwan.
-//     - Prioritize region-specific terms, idiomatic expressions, and phrases relevant to Taiwanese perspectives, policies, and issues.
-//     - Prioritize keywords relevant to Taiwanese perspectives, policies, and issues.
-// 2. Read and Analyze the Article
-//     - Carefully read and understand the article’s main topic, purpose, and context.
-//     - Identify recurring terms, central ideas, and emphasized points.
-// 3. Categorize keyword:
-//     - Extract and organize keywords into three distinct categories:
-//       1) Themes: Overarching topics or main ideas (e.g., "能源政策").
-//       2) Entities: Names of people, organizations, locations, or proper nouns (e.g., "台積電", "蔡英文").
-//       3) Actions/Concepts: Important verbs, policies, or concepts central to the message (e.g., "推動綠能", "經濟改革").
-// 4. Filter and Prioritize:
-//     - Avoid generic terms or overused words that do not add value (e.g., "以及," "的").
-//     - Ensure keywords are unique and meaningful, directly tied to the content.
-//     - Avoid Simplified Chinese terms—focus exclusively on Traditional Chinese.
+func TestOllama(t *testing.T) {
+	var (
+		OllamaHost = "host.docker.internal"
+		OllamaPort = 11434
+		GenModel   = "gemma3n:e4b"
+		EmbedModel = "bge-large:latest"
+		EmbedDim   = 1024
+	)
+	var OllamaURL = fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
 
-// Checklist
-//   - At most 15–20 keywords or key phrases.
-//   - Confirm that all keywords are in Traditional Chinese.
-//   - Ensure extracted keywords reflect the article’s central ideas and regional context.
+	var cli llm.LLM
+	var err error
+	cli, err = ollama.Ollama(
+		context.Background(),
+		ollama.WithHost(OllamaURL),
+		ollama.WithModel(
+			ollama.NewOllamaModel(llm.ModelGenerate, GenModel),
+			ollama.NewOllamaModel(llm.ModelEmbed, EmbedModel),
+		),
+		ollama.WithDefaultGenerate(GenModel),
+		ollama.WithDefaultEmbed(EmbedModel),
+	)
 
-// Input Format:
-// {
-//     "article": "以繁體中文撰寫的文章"
-// }
+	if err != nil {
+		// If we can't connect or the models aren't found, we skip the test.
+		t.Skipf("Skipping Ollama tests: could not connect to Ollama server at %s or models not found. Error: %v",
+			OllamaURL, err)
+	}
+	require.NotNil(t, cli)
 
-// Input Example:
-// {
-//     "article": "台灣政府正積極推動綠能轉型，目標於2050年達成淨零排放。同時，半導體產業的發展仍然是全球競爭的焦點。台積電持續領先，美國與歐盟也相繼投入資源建立自己的晶片供應鏈。"
-// }
+	t.Run("Generate", func(t *testing.T) {
+		resp, err := cli.Generate(&llm.GenerateRequest{
+			Context: context.Background(),
+			Messages: []llm.Message{
+				{
+					Role: llm.RoleSystem,
+					Content: []string{
+						"You are a helpful assistant.",
+						"You always try to answer users question within 100 words.",
+					},
+				},
+				{
+					Role: llm.RoleUser,
+					Content: []string{
+						"Introduce yourself.",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Outputs)
+	})
 
-// Output Format:
-// {
-//     "themes": ["主題1", "主題2"],
-//     "entities": ["實體1", "實體2", "實體3"],
-//     "actions_concepts": ["行動1", "概念2", "政策3"]
-// }
+	t.Run("Embed", func(t *testing.T) {
+		data, err := os.ReadFile("./test_embd.txt")
+		require.NoError(t, err)
+		require.NotNil(t, data)
 
-// Output Example:
-// {
-//     "themes": ["綠能轉型", "淨零排放", "半導體產業"],
-//     "entities": ["台灣政府", "台積電", "美國", "歐盟"],
-//     "actions_concepts": ["推動綠能轉型", "建立晶片供應鏈", "領先"]
-// }`
-// 	content := "以色列6月13日（以下皆指台灣時間）對伊朗發動大規模攻勢，聲稱要阻止伊朗發展核武，伊朗也隨之反擊，雙方激烈交火；6月22日，美國軍事介入以伊衝突，轟炸伊朗三個核設施，喊話伊朗必須立即停火。以色列和伊朗6月24日接受美國總統川普提出的停火方案，以終結他們這場歷時12天、撼動中東局勢的戰爭，不過川普說，以色列和伊朗都違反了停火協議。"
-// 	payload, err := json.Marshal(map[string]string{
-// 		"article": content,
-// 	})
-// 	require.NoError(t, err, "Failed to marshal payload to JSON")
+		lines := strings.Split(string(data), "\n")
+		inputs := make([]llm.EmbedInput, len(lines))
+		for i, line := range lines {
+			inputs[i] = llm.NewSimpleText(line)
+		}
 
-// 	// model := "TwinkleAI/Llama-3.2-3B-F1-Resoning-Instruct:latest"
-// 	model := "gemma3:latest"
-// 	ollama := llm.NewDefaultOllamaClient()
-// 	require.NotNil(t, ollama, "Ollama client should not be nil")
-// 	messages := []api.Message{
-// 		{
-// 			Role:    string(llm.RoleSystem),
-// 			Content: prompt,
-// 		},
-// 		{
-// 			Role:    string(llm.RoleUser),
-// 			Content: string(payload),
-// 		},
-// 	}
-// 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-// 	defer cancel()
-// 	resp, err := ollama.Chat(ctx, model, messages, false, nil, nil)
-// 	require.NoError(t, err, "Chatting with Ollama should not return an error")
-// 	require.NotNil(t, resp, "Chat response should not be nil")
-// 	require.NotEmpty(t, resp.Content, "Chat response content should not be empty")
-// 	t.Log("Chat response content:", resp.Content)
-// 	t.Log("Chat response thinking:", resp.Thinking)
-// }
+		resp, err := cli.Embed(&llm.EmbedRequest{
+			Ctx:       context.Background(),
+			Inputs:    inputs,
+			ModelName: EmbedModel,
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Embeddings, len(inputs))
+		for _, embed := range resp.Embeddings {
+			require.Equal(t, llm.EmbedStateOk, embed.State)
+			require.NotEmpty(t, embed.Values)
+			require.Equal(t, embed.State, llm.EmbedStateOk)
+			require.Equal(t, EmbedDim, embed.Dim())
+		}
+	})
+}

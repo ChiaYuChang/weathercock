@@ -1,89 +1,33 @@
 package llm
 
-import (
-	"context"
-	"encoding/json"
-)
+// LLM defines the interface for Large Language Model operations and model management.
+// Implementations should provide methods for text generation, embedding, and model handling.
+type LLM interface {
+	// Generate produces a response from the LLM given a request.
+	Generate(req *GenerateRequest) (*GenerateResponse, error)
 
-type LLM struct {
-	ChatCompletion
-	Embedding
-}
+	// BatchGenerate processes multiple generation requests in a single call.
+	BatchGenerate(reqs *BatchRequest) (*BatchResponse, error)
 
-type ChatCompletion interface {
-	New(ctx context.Context, model string, req *ChatCompletionRequest) (*ChatCompletionResponse, error)
-}
+	BatchRetrieve(req *BatchRetrieveRequest) (*BatchResponse, error)
 
-type ResponseRequest struct {
-	Model           string            `json:"model"`
-	Input           string            `json:"input"`                       // input text for the model
-	Instruction     string            `json:"instruction,omitempty"`       // optional instruction to guide the model's response
-	MaxOutputTokens int               `json:"max_output_tokens,omitempty"` // maximum number of tokens to generate in the response
-	Metadata        map[string]string `json:"metadata,omitempty"`          // additional metadata for the request, can be used for tracking or logging
-	Options         map[string]any    `json:"options,omitempty"`           // additional options for the request, can include parameters like temperature, top_p, etc.
-	Temperature     float64           `json:"temperature,omitempty"`       // temperature for sampling, higher values mean more randomness
-	Schema          any               `json:"schema,omitempty"`            // JSON schema for the response, can be used to validate the response structure
+	BatchCancel(req *BatchCancelRequest) error
 
-}
+	// Embed generates embeddings for the given request.
+	Embed(req *EmbedRequest) (*EmbedResponse, error)
 
-type ModelOptions struct {
-	Temperature     float64 `json:"temperature,omitempty"`       // temperature for sampling, higher values mean more randomness
-	MaxOutputTokens int     `json:"max_output_tokens,omitempty"` // maximum number of tokens to generate in the response
-	TopLogProbs     int     `json:"top_logprobs,omitempty"`      // number of top log probabilities to return, useful for debugging or analysis
-	TopP            float64 `json:"top_p,omitempty"`             // top-p sampling,
-	Seed            int32   `json:"seed,omitempty"`              // seed for random number generation, useful for reproducibility
-}
+	// AddModel registers a new model with the LLM service.
+	AddModel(model Model)
 
-type Reasoning struct {
-	// effort level of the reasoning process, should be one of "low",
-	// "medium", "high"
-	Effort string `json:"effort,omitempty"`
-	// summary of the reasoning process, should be one of "auto",
-	// "concise", "detailed"
-	Summary string `json:"summary,omitempty"`
-}
+	// SetDefaultModel sets the default model for a given type.
+	SetDefaultModel(modelType ModelType, name string) error
 
-type ChatCompletionRequest struct {
-	Model             string                  `json:"model"`                        // model to use for the chat completion
-	SystemInstruction []string                `json:"system_instruction,omitempty"` // system message to set the context for the chat
-	Messages          []ChatCompletionMessage `json:"messages"`                     // list of messages in the chat, each message should implement ChatCompletionMessage interface
-	Stream            bool                    `json:"stream,omitempty"`             // whether to stream the response or return it all at once
-	Schema            any                     `json:"schema,omitempty"`             // JSON schema for the response, can be used to validate the response structure
-	ModelOptions
-}
+	// HasModel checks if a model with the given name exists.
+	HasModel(name string) bool
 
-type ChatCompletionMessage interface {
-	json.Marshaler
-	Role() string
-	Content() []string
-}
+	// DefaultModel returns the default model for a given type, if set.
+	DefaultModel(modelType ModelType) (Model, bool)
 
-type ChatCompletionResponse struct {
-	ID       string // identifier for the chat completion
-	Model    string // model used for the chat completion
-	Messages []ChatCompletionMessage
-	Thinking string
-	resp     any // raw response from the LLM, can be used for debugging or further processing
-}
-
-func (resp *ChatCompletionResponse) OriginalResponse() any {
-	if resp == nil {
-		return nil
-	}
-	return resp.resp
-}
-
-type Embedding interface {
-	New(ctx context.Context, model string, req *EmbeddingRequest) (*EmbeddingResponse, error)
-}
-
-type EmbeddingRequest struct {
-	Model string
-	Input []string
-}
-
-type EmbeddingResponse struct {
-	ID         string
-	Model      string
-	Embeddings [][]float64
+	// ListModels returns all registered models.
+	ListModels() []Model
 }

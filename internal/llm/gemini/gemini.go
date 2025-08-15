@@ -145,7 +145,7 @@ func Gemini(ctx context.Context, opts ...Option) (*Client, error) {
 // Returns:
 //   - *llm.GenerateResponse with the generated output and raw response.
 //   - error if the request fails or the configuration type is invalid.
-func (cli *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (cli *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
@@ -165,7 +165,7 @@ func (cli *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, er
 		return nil, err
 	}
 
-	gResp, err := cli.GenAI.Models.GenerateContent(req.Context, modelName, contents, gConf)
+	gResp, err := cli.GenAI.Models.GenerateContent(ctx, modelName, contents, gConf)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func (cli *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, er
 	}, nil
 }
 
-func (cli *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelEmbed); ok {
@@ -196,7 +196,7 @@ func (cli *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 		return nil, err
 	}
 
-	gResp, err := cli.GenAI.Models.EmbedContent(req.Ctx, modelName, contents, gConf)
+	gResp, err := cli.GenAI.Models.EmbedContent(ctx, modelName, contents, gConf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -220,7 +220,7 @@ func (cli *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	return resp, nil
 }
 
-func (cli *Client) BatchGenerate(req *llm.BatchRequest) (*llm.BatchResponse, error) {
+func (cli *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
 	inlineReqs := make([]*genai.InlinedRequest, len(req.Requests))
 	for i, r := range req.Requests {
 		contents, err := toGenAIContents(r.Messages)
@@ -271,7 +271,7 @@ func (cli *Client) BatchGenerate(req *llm.BatchRequest) (*llm.BatchResponse, err
 		}
 	}
 	job, err := cli.GenAI.Batches.Create(
-		req.Ctx, modelName, &genai.BatchJobSource{InlinedRequests: inlineReqs}, gConf,
+		ctx, modelName, &genai.BatchJobSource{InlinedRequests: inlineReqs}, gConf,
 	)
 	if err != nil {
 		return nil, err
@@ -289,13 +289,12 @@ func (cli *Client) BatchGenerate(req *llm.BatchRequest) (*llm.BatchResponse, err
 	}, err
 }
 
-func (cli *Client) BatchRetrieve(req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
+func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
 	conf, err := assertAs[*genai.GetBatchJobConfig](req.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx := utils.IfElse(req.Ctx == nil, context.Background(), req.Ctx)
 	job, err := cli.GenAI.Batches.Get(ctx, req.ID, conf)
 	if err != nil {
 		return nil, err
@@ -325,10 +324,10 @@ func (cli *Client) BatchRetrieve(req *llm.BatchRetrieveRequest) (*llm.BatchRespo
 	}, err
 }
 
-func (cli *Client) BatchCancel(req *llm.BatchCancelRequest) error {
+func (cli *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
 	gConf, err := assertAs[*genai.CancelBatchJobConfig](req.Config)
 	if err != nil {
 		return err
 	}
-	return cli.GenAI.Batches.Cancel(req.Ctx, req.ID, gConf)
+	return cli.GenAI.Batches.Cancel(ctx, req.ID, gConf)
 }

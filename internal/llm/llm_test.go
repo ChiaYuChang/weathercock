@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"github.com/ChiaYuChang/weathercock/internal/llm/gemini"
@@ -29,8 +30,7 @@ func TestGemini(t *testing.T) {
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(&llm.GenerateRequest{
-			Context: context.Background(),
+		resp, err := cli.Generate(context.Background(), &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
 					Role: llm.RoleSystem,
@@ -59,8 +59,7 @@ func TestGemini(t *testing.T) {
 			llm.NewSimpleText("The Google Gen AI SDK provides a unified interface to Gemini 2.5 Pro and Gemini 2.0 models through both the Gemini Developer API and the Gemini API on Vertex AI. With a few exceptions, code that runs on one platform will run on both. This means that you can prototype an application using the Gemini Developer API and then migrate the application to Vertex AI without rewriting your code."),
 		}
 
-		resp, err := cli.Embed(&llm.EmbedRequest{
-			Ctx:    context.Background(),
+		resp, err := cli.Embed(context.Background(), &llm.EmbedRequest{
 			Inputs: inputs,
 			Config: &genai.EmbedContentConfig{
 				TaskType:             gemini.EmbedTaskRetrivalDocument,
@@ -117,8 +116,9 @@ func TestOllama(t *testing.T) {
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(&llm.GenerateRequest{
-			Context: context.Background(),
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		resp, err := cli.Generate(ctx, &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
 					Role: llm.RoleSystem,
@@ -140,7 +140,6 @@ func TestOllama(t *testing.T) {
 	})
 
 	t.Run("Embed", func(t *testing.T) {
-
 		data, err := os.ReadFile("./test_embd.txt")
 		require.NoError(t, err)
 		require.NotNil(t, data)
@@ -156,11 +155,13 @@ func TestOllama(t *testing.T) {
 			}
 		}
 
-		resp, err := cli.Embed(&llm.EmbedRequest{
-			Ctx:       context.Background(),
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		resp, err := cli.Embed(ctx, &llm.EmbedRequest{
 			Inputs:    inputs,
 			ModelName: EmbedModel,
 		})
+
 		require.NoError(t, err)
 		require.Len(t, resp.Embeddings, len(inputs))
 		for _, embed := range resp.Embeddings {

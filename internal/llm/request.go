@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,7 +16,6 @@ const (
 )
 
 var (
-	ErrContextShouldNotBeNull = errors.New("context in request should not be null")
 	ErrRequestShouldNotBeNull = errors.New("request should not be null")
 	ErrNoInput                = errors.New("no input provided in request")
 )
@@ -53,7 +51,6 @@ type Message struct {
 }
 
 type GenerateRequest struct {
-	context.Context
 	Messages  []Message
 	ModelName string
 	Config    any
@@ -65,7 +62,6 @@ type GenerateResponse struct {
 }
 
 type EmbedRequest struct {
-	Ctx       context.Context
 	Inputs    []EmbedInput
 	ModelName string
 	Config    any
@@ -99,7 +95,6 @@ func (embed Embedding) String() string {
 }
 
 type BatchRequest struct {
-	Ctx          context.Context    `json:"-"`
 	ModelName    string             `json:"model_name"`
 	BatchJobName string             `json:"batch_job_name"`
 	Requests     []*GenerateRequest `json:"requests"`
@@ -119,13 +114,11 @@ type BatchResponse struct {
 }
 
 type BatchRetrieveRequest struct {
-	Ctx    context.Context `json:"-"`
-	ID     string          `json:"id"`
-	Config any             `json:"config"`
+	ID     string `json:"id"`
+	Config any    `json:"config"`
 }
 
 type BatchCancelRequest struct {
-	Ctx    context.Context `json:"-"`
-	ID     string          `json:"id"`
-	Config any             `json:"config"`
+	ID     string `json:"id"`
+	Config any    `json:"config"`
 }

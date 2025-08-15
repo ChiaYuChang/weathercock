@@ -236,13 +236,9 @@ func OpenAI(ctx context.Context, opts ...Option) (*Client, error) {
 	}, nil
 }
 
-func (cli *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (cli *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
-	}
-
-	if req.Context == nil {
-		return nil, llm.ErrContextShouldNotBeNull
 	}
 
 	if len(req.Messages) == 0 {
@@ -250,13 +246,13 @@ func (cli *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, er
 	}
 
 	if cli.UseChatComplete {
-		return cli.generateChatCompletions(req)
+		return cli.generateChatCompletions(ctx, req)
 	}
-	return cli.generateRequest(req)
+	return cli.generateRequest(ctx, req)
 }
 
 // generateRequest produces a response from an OpenAI model.
-func (cli *Client) generateRequest(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (cli *Client) generateRequest(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
@@ -272,7 +268,7 @@ func (cli *Client) generateRequest(req *llm.GenerateRequest) (*llm.GenerateRespo
 	}
 
 	oResp, err := cli.OpenAI.Responses.New(
-		req.Context,
+		ctx,
 		responses.ResponseNewParams{
 			Model: modelName,
 			Input: responses.ResponseNewParamsInputUnion{
@@ -296,7 +292,7 @@ func (cli *Client) generateRequest(req *llm.GenerateRequest) (*llm.GenerateRespo
 	}, nil
 }
 
-func (cli *Client) generateChatCompletions(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (cli *Client) generateChatCompletions(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
@@ -326,7 +322,7 @@ func (cli *Client) generateChatCompletions(req *llm.GenerateRequest) (*llm.Gener
 	}
 
 	oResp, err := cli.OpenAI.Chat.Completions.New(
-		req.Context,
+		ctx,
 		openai.ChatCompletionNewParams{
 			Messages: messages,
 			Model:    modelName,
@@ -349,13 +345,9 @@ func (cli *Client) generateChatCompletions(req *llm.GenerateRequest) (*llm.Gener
 }
 
 // Embed generates embeddings for the given request using an OpenAI model.
-func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
-	}
-
-	if req.Ctx == nil {
-		return nil, llm.ErrContextShouldNotBeNull
 	}
 
 	if len(req.Inputs) == 0 {
@@ -385,7 +377,7 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	var err error
 	if c.EmbedDim > 0 {
 		resp, err = c.OpenAI.Embeddings.New(
-			req.Ctx,
+			ctx,
 			openai.EmbeddingNewParams{
 				Input: openai.EmbeddingNewParamsInputUnion{
 					OfArrayOfStrings: input,
@@ -397,7 +389,7 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 		)
 	} else {
 		resp, err = c.OpenAI.Embeddings.New(
-			req.Ctx,
+			ctx,
 			openai.EmbeddingNewParams{
 				Input: openai.EmbeddingNewParamsInputUnion{
 					OfArrayOfStrings: input,
@@ -450,20 +442,17 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 // 	return floats, nil
 // }
 
-// // BatchGenerate is not yet implemented for OpenAI.
-// func (c *Client) BatchGenerate(req *llm.BatchRequest) (*llm.BatchResponse, error) {
-// 	return nil, errNotImplemented
-// }
+func (c *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
+	return nil, llm.ErrNotImplemented
+}
 
-// // BatchRetrieve is not yet implemented for OpenAI.
-// func (c *Client) BatchRetrieve(req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
-// 	return nil, errNotImplemented
-// }
+func (c *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
+	return nil, llm.ErrNotImplemented
+}
 
-// // BatchCancel is not yet implemented for OpenAI.
-// func (c *Client) BatchCancel(req *llm.BatchCancelRequest) error {
-// 	return errNotImplemented
-// }
+func (c *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
+	return llm.ErrNotImplemented
+}
 
 // // toOpenAIMessages converts the internal message format to the OpenAI format.
 // func toOpenAIMessages(messages []llm.Message) []openai.ChatCompletionMessage {

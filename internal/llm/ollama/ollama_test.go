@@ -49,8 +49,7 @@ func TestOllama(t *testing.T) {
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(&llm.GenerateRequest{
-			Context: context.Background(),
+		resp, err := cli.Generate(context.Background(), &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
 					Role: llm.RoleSystem,
@@ -91,8 +90,7 @@ func TestOllama(t *testing.T) {
 			inputs[i] = llm.NewSimpleText(text)
 		}
 
-		resp, err := cli.Embed(&llm.EmbedRequest{
-			Ctx:    context.Background(),
+		resp, err := cli.Embed(context.Background(), &llm.EmbedRequest{
 			Inputs: inputs,
 		})
 		require.NoError(t, err)

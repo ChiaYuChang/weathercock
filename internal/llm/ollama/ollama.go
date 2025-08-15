@@ -134,13 +134,9 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 }
 
 // Generate produces a response from the Ollama model.
-func (c *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (c *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
-	}
-
-	if req.Context == nil {
-		return nil, llm.ErrContextShouldNotBeNull
 	}
 
 	if len(req.Messages) == 0 {
@@ -165,7 +161,7 @@ func (c *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, erro
 
 	isStreaming := false
 	var apiResp api.ChatResponse
-	if err := c.OllamaAPI.Chat(req.Context, &api.ChatRequest{
+	if err := c.OllamaAPI.Chat(ctx, &api.ChatRequest{
 		Model:    modelName,
 		Messages: messages,
 		Options:  opts,
@@ -188,13 +184,9 @@ func (c *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, erro
 }
 
 // Embed generates embeddings for the given request.
-func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
-	}
-
-	if req.Ctx == nil {
-		return nil, llm.ErrContextShouldNotBeNull
 	}
 
 	if len(req.Inputs) == 0 {
@@ -230,7 +222,7 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 			// decrement counter when the goroutine exits.
 			defer workersWg.Done()
 			for input := range reqCh {
-				apiResp, err := c.OllamaAPI.Embeddings(req.Ctx, input.Req)
+				apiResp, err := c.OllamaAPI.Embeddings(ctx, input.Req)
 				respCh <- &OllamaEmbedRawResp{
 					index: input.Index,
 					Text:  input.Req.Prompt,
@@ -279,16 +271,16 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 }
 
 // BatchGenerate is not supported by Ollama.
-func (c *Client) BatchGenerate(req *llm.BatchRequest) (*llm.BatchResponse, error) {
+func (c *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
 	return nil, ErrNotImplemented
 }
 
 // BatchRetrieve is not supported by Ollama.
-func (c *Client) BatchRetrieve(req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
+func (c *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
 	return nil, ErrNotImplemented
 }
 
 // BatchCancel is not supported by Ollama.
-func (c *Client) BatchCancel(req *llm.BatchCancelRequest) error {
+func (c *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
 	return ErrNotImplemented
 }

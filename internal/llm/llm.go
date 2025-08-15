@@ -1,20 +1,22 @@
 package llm
 
+import "context"
+
 // LLM defines the interface for Large Language Model operations and model management.
 // Implementations should provide methods for text generation, embedding, and model handling.
 type LLM interface {
 	// Generate produces a response from the LLM given a request.
-	Generate(req *GenerateRequest) (*GenerateResponse, error)
+	Generate(ctx context.Context, req *GenerateRequest) (*GenerateResponse, error)
 
 	// BatchGenerate processes multiple generation requests in a single call.
-	BatchGenerate(reqs *BatchRequest) (*BatchResponse, error)
+	BatchGenerate(ctx context.Context, reqs *BatchRequest) (*BatchResponse, error)
 
-	BatchRetrieve(req *BatchRetrieveRequest) (*BatchResponse, error)
+	BatchRetrieve(ctx context.Context, req *BatchRetrieveRequest) (*BatchResponse, error)
 
-	BatchCancel(req *BatchCancelRequest) error
+	BatchCancel(ctx context.Context, req *BatchCancelRequest) error
 
 	// Embed generates embeddings for the given request.
-	Embed(req *EmbedRequest) (*EmbedResponse, error)
+	Embed(ctx context.Context, req *EmbedRequest) (*EmbedResponse, error)
 
 	// AddModel registers a new model with the LLM service.
 	AddModel(model Model)

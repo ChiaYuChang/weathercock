@@ -135,6 +135,18 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 
 // Generate produces a response from the Ollama model.
 func (c *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	if req == nil {
+		return nil, llm.ErrRequestShouldNotBeNull
+	}
+
+	if req.Context == nil {
+		return nil, llm.ErrContextShouldNotBeNull
+	}
+
+	if len(req.Messages) == 0 {
+		return nil, llm.ErrNoInput
+	}
+
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := c.DefaultModel(llm.ModelGenerate); ok {
@@ -177,6 +189,18 @@ func (c *Client) Generate(req *llm.GenerateRequest) (*llm.GenerateResponse, erro
 
 // Embed generates embeddings for the given request.
 func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+	if req == nil {
+		return nil, llm.ErrRequestShouldNotBeNull
+	}
+
+	if req.Ctx == nil {
+		return nil, llm.ErrContextShouldNotBeNull
+	}
+
+	if len(req.Inputs) == 0 {
+		return nil, llm.ErrNoInput
+	}
+
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := c.DefaultModel(llm.ModelEmbed); ok {
@@ -196,9 +220,7 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 		Model:      modelName,
 	}
 
-	// raws will hold the raw api responses from ollama
 	raws := make([]OllamaEmbedRawResp, len(req.Inputs))
-
 	reqCh, respCh := make(chan *OllamaEmbedReq), make(chan *OllamaEmbedRawResp)
 
 	workersWg := sync.WaitGroup{}
@@ -229,7 +251,7 @@ func (c *Client) Embed(req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 			} else {
 				resp.Embeddings[rawResp.index] = llm.Embedding{
 					State:  llm.EmbedStateOk,
-					Values: toFloat32Vec(rawResp.Raw.Embedding),
+					Values: utils.ToFloat32(rawResp.Raw.Embedding),
 				}
 			}
 			raws[rawResp.index] = *rawResp

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,12 @@ const (
 	EmbedStateOk        = ""
 	EmbedStateTruncated = "truncated"
 	EmbedStateError     = "error"
+)
+
+var (
+	ErrContextShouldNotBeNull = errors.New("context in request should not be null")
+	ErrRequestShouldNotBeNull = errors.New("request should not be null")
+	ErrNoInput                = errors.New("no input provided in request")
 )
 
 type Role string

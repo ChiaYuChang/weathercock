@@ -1,51 +1,34 @@
-package ollama_test
+package openai_test
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
-	"github.com/ChiaYuChang/weathercock/internal/llm/ollama"
+	"github.com/ChiaYuChang/weathercock/internal/llm/openai"
 	"github.com/stretchr/testify/require"
 )
 
-// To run these tests, you need a running Ollama instance.
-// By default, it connects to http://localhost:11434. You can override this by setting the OLLAMA_HOST environment variable.
-// You also need to have the required models pulled:
-// `ollama pull llama3`
-// `ollama pull nomic-embed-text`
-
-var (
-	OllamaHost = "host.docker.internal"
-	OllamaPort = 11434
-	GenModel   = "gemma3:270m"
-	// GenModel   = "gpt-oss:20b"
-	EmbedModel = "bge-large:latest"
-	EmbedDim   = 1024
-)
-
-var OllamaURL = fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
-
-func TestOllama(t *testing.T) {
-	cli, err := ollama.Ollama(
-		context.Background(),
-		ollama.WithHost(OllamaURL),
-		ollama.WithModel(
-			ollama.NewOllamaModel(llm.ModelGenerate, GenModel),
-			ollama.NewOllamaModel(llm.ModelEmbed, EmbedModel),
+func TestOpenRouter(t *testing.T) {
+	model := "openai/gpt-oss-20b:free"
+	cli, err := openai.OpenAI(context.Background(),
+		openai.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
+		openai.WithBaseURL("https://openrouter.ai/api/v1"),
+		openai.WithModel(
+			openai.NewOpenAIModel(llm.ModelGenerate, model),
+			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
 		),
-		ollama.WithDefaultGenerate(GenModel),
-		ollama.WithDefaultEmbed(EmbedModel),
+		openai.WithDefaultGenerate(model),
+		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
+		openai.WithMaxRetries(3),
+		openai.WithTimeout(30*time.Second),
+		openai.UseChatChatCompletions(),
 	)
-
-	if err != nil {
-		// If we can't connect or the models aren't found, we skip the test.
-		// This is useful for CI environments where Ollama might not be running.
-		t.Skipf("Skipping Ollama tests: could not connect to Ollama server at %s or models not found. Error: %v",
-			OllamaURL, err)
-	}
+	require.NoError(t, err)
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
@@ -62,7 +45,7 @@ func TestOllama(t *testing.T) {
 				{
 					Role: llm.RoleUser,
 					Content: []string{
-						"Introduce yourself.",
+						"Please introduce yourself within 100 words.",
 					},
 				},
 			},
@@ -71,7 +54,65 @@ func TestOllama(t *testing.T) {
 		require.NotEmpty(t, resp.Outputs)
 		for _, output := range resp.Outputs {
 			require.NotEmpty(t, output)
-			t.Log(output)
+		}
+
+		data, err := json.Marshal(resp)
+		require.NoError(t, err)
+		require.NotNil(t, data)
+
+		t.Log(strings.Join(resp.Outputs, "\n"))
+	})
+}
+
+func TestOpenAI(t *testing.T) {
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		t.Skip("OPENAI_API_KEY not found, skip test")
+	}
+
+	embedDim := 1024
+	cli, err := openai.OpenAI(context.Background(),
+		openai.WithAPIKey(key),
+		openai.WithMaxRetries(3),
+		openai.WithTimeout(30*time.Second),
+		openai.WithModel(
+			openai.NewOpenAIModel(llm.ModelGenerate, openai.DefaultGenModel),
+			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
+		),
+		openai.WithDefaultGenerate(openai.DefaultGenModel),
+		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
+		openai.WithEmbedDim(embedDim),
+	)
+
+	if err != nil {
+		t.Skipf("could not connet to openai, skip test: %v", err)
+	}
+
+	require.NotNil(t, cli)
+
+	t.Run("Generate", func(t *testing.T) {
+		resp, err := cli.Generate(&llm.GenerateRequest{
+			Context: context.Background(),
+			Messages: []llm.Message{
+				{
+					Role: llm.RoleSystem,
+					Content: []string{
+						"You are a helpful assistant.",
+						"You always try to answer users question within 100 words.",
+					},
+				},
+				{
+					Role: llm.RoleUser,
+					Content: []string{
+						"Please introduce yourself within 100 words.",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Outputs)
+		for _, output := range resp.Outputs {
+			require.NotEmpty(t, output)
 		}
 
 		data, err := json.Marshal(resp)
@@ -96,15 +137,16 @@ func TestOllama(t *testing.T) {
 			Inputs: inputs,
 		})
 		require.NoError(t, err)
-		require.Len(t, resp.Embeddings, 2)
-		for _, embed := range resp.Embeddings {
-			require.Equal(t, llm.EmbedStateOk, embed.State)
-			require.NotEmpty(t, embed.Values)
-			require.Len(t, embed.Values, EmbedDim)
-		}
+		require.Len(t, resp.Embeddings, len(inputs))
 
 		data, err := json.Marshal(resp)
 		require.NoError(t, err)
 		require.NotNil(t, data)
+
+		for _, embed := range resp.Embeddings {
+			require.Equal(t, llm.EmbedStateOk, embed.State)
+			require.NotEmpty(t, embed.Values)
+			require.Len(t, embed.Values, embedDim)
+		}
 	})
 }

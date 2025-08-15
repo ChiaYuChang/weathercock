@@ -41,14 +41,6 @@ func toOllamaMessages(msgs []llm.Message) []api.Message {
 	return oMsgs
 }
 
-func toFloat32Vec(f64vec []float64) []float32 {
-	f32Vec := make([]float32, len(f64vec))
-	for i, val := range f64vec {
-		f32Vec[i] = float32(val)
-	}
-	return f32Vec
-}
-
 // toOptions performs a type assertion, returning the result or an error.
 func toOptions(conf any) (map[string]any, error) {
 	if conf == nil {

@@ -28,5 +28,6 @@ configs/
 
 # data
 data/
+cmd/tmp/
 .devcontainer/
 GEMINI.md

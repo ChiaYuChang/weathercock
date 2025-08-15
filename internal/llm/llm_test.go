@@ -77,12 +77,21 @@ func TestGemini(t *testing.T) {
 	})
 }
 
+type InstructQuery struct {
+	Instruct string
+	Query    string
+}
+
+func (q InstructQuery) String() string {
+	return fmt.Sprintf("Instruct: %s\nQuery: %s", q.Instruct, q.Query)
+}
+
 func TestOllama(t *testing.T) {
 	var (
 		OllamaHost = "host.docker.internal"
 		OllamaPort = 11434
 		GenModel   = "gemma3n:e4b"
-		EmbedModel = "bge-large:latest"
+		EmbedModel = "jeffh/intfloat-multilingual-e5-large-instruct:f32"
 		EmbedDim   = 1024
 	)
 	var OllamaURL = fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
@@ -131,14 +140,20 @@ func TestOllama(t *testing.T) {
 	})
 
 	t.Run("Embed", func(t *testing.T) {
+
 		data, err := os.ReadFile("./test_embd.txt")
 		require.NoError(t, err)
 		require.NotNil(t, data)
 
+		instruct := "Given a web search query, retrieve relevant passages that answer the query"
+
 		lines := strings.Split(string(data), "\n")
 		inputs := make([]llm.EmbedInput, len(lines))
 		for i, line := range lines {
-			inputs[i] = llm.NewSimpleText(line)
+			inputs[i] = InstructQuery{
+				Instruct: instruct,
+				Query:    line,
+			}
 		}
 
 		resp, err := cli.Embed(&llm.EmbedRequest{

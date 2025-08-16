@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v2/shared"
 )
 
 const (
@@ -267,7 +271,7 @@ func (cli *Client) generateRequest(ctx context.Context, req *llm.GenerateRequest
 		opts = v
 	}
 
-	oResp, err := cli.OpenAI.Responses.New(
+	resp, err := cli.OpenAI.Responses.New(
 		ctx,
 		responses.ResponseNewParams{
 			Model: modelName,
@@ -287,8 +291,8 @@ func (cli *Client) generateRequest(ctx context.Context, req *llm.GenerateRequest
 	}
 
 	return &llm.GenerateResponse{
-		Outputs: []string{oResp.OutputText()},
-		Raw:     oResp,
+		Outputs: []string{resp.OutputText()},
+		Raw:     resp,
 	}, nil
 }
 
@@ -321,7 +325,7 @@ func (cli *Client) generateChatCompletions(ctx context.Context, req *llm.Generat
 		opts = v
 	}
 
-	oResp, err := cli.OpenAI.Chat.Completions.New(
+	resp, err := cli.OpenAI.Chat.Completions.New(
 		ctx,
 		openai.ChatCompletionNewParams{
 			Messages: messages,
@@ -339,13 +343,13 @@ func (cli *Client) generateChatCompletions(ctx context.Context, req *llm.Generat
 	}
 
 	return &llm.GenerateResponse{
-		Outputs: []string{oResp.Choices[0].Message.Content},
-		Raw:     oResp,
+		Outputs: []string{resp.Choices[0].Message.Content},
+		Raw:     resp,
 	}, nil
 }
 
 // Embed generates embeddings for the given request using an OpenAI model.
-func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
 	}
@@ -356,7 +360,7 @@ func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedRe
 
 	modelName := req.ModelName
 	if modelName == "" {
-		if m, ok := c.DefaultModel(llm.ModelEmbed); ok {
+		if m, ok := cli.DefaultModel(llm.ModelEmbed); ok {
 			modelName = m.Name()
 		} else {
 			modelName = DefaultGenModel
@@ -375,27 +379,27 @@ func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedRe
 
 	var resp *openai.CreateEmbeddingResponse
 	var err error
-	if c.EmbedDim > 0 {
-		resp, err = c.OpenAI.Embeddings.New(
+	if cli.EmbedDim > 0 {
+		resp, err = cli.OpenAI.Embeddings.New(
 			ctx,
 			openai.EmbeddingNewParams{
 				Input: openai.EmbeddingNewParamsInputUnion{
 					OfArrayOfStrings: input,
 				},
 				Model:          modelName,
+				Dimensions:     openai.Int(int64(cli.EmbedDim)),
 				EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
 			},
 			opts...,
 		)
 	} else {
-		resp, err = c.OpenAI.Embeddings.New(
+		resp, err = cli.OpenAI.Embeddings.New(
 			ctx,
 			openai.EmbeddingNewParams{
 				Input: openai.EmbeddingNewParamsInputUnion{
 					OfArrayOfStrings: input,
 				},
 				Model:          modelName,
-				Dimensions:     openai.Int(int64(c.EmbedDim)),
 				EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
 			},
 			opts...,
@@ -421,62 +425,225 @@ func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedRe
 	}, nil
 }
 
-// decodeBase64ToFloat32 decodes a base64 string into a slice of float32.
-// OpenAI embeddings are little-endian.
-// func decodeBase64ToFloat32(b64 string) ([]float32, error) {
-// 	decoded, err := base64.StdEncoding.DecodeString(b64)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to decode base64 string: %w", err)
-// 	}
-
-// 	if len(decoded)%4 != 0 {
-// 		return nil, fmt.Errorf("decoded byte slice length is not a multiple of 4, got %d", len(decoded))
-// 	}
-
-// 	count := len(decoded) / 4
-// 	floats := make([]float32, count)
-// 	for i := 0; i < count; i++ {
-// 		bits := binary.LittleEndian.Uint32(decoded[i*4 : (i+1)*4])
-// 		floats[i] = math.Float32frombits(bits)
-// 	}
-// 	return floats, nil
-// }
-
-func (c *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
-	return nil, llm.ErrNotImplemented
+type OpenAIBatchJsonL struct {
+	CustomID string                        `json:"custom_id"`
+	Method   string                        `json:"method"`
+	Endpoint openai.BatchNewParamsEndpoint `json:"url"`
+	Body     any                           `json:"body"`
 }
 
-func (c *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
-	return nil, llm.ErrNotImplemented
+func (jsonl OpenAIBatchJsonL) ContentType() string {
+	return "application/jsonl"
 }
 
-func (c *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
+func (cli *Client) File(ctx context.Context, r io.Reader, filename, contenttype string, opts ...option.RequestOption) (res *openai.FileObject, err error) {
+	file, err := cli.OpenAI.Files.New(
+		ctx,
+		openai.FileNewParams{
+			File:    openai.File(r, filename, contenttype),
+			Purpose: openai.FilePurposeBatch,
+		},
+		opts...,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s (content type: %s) for batch: %w", filename, contenttype, err)
+	}
+	return file, nil
+}
+
+func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
+	if req == nil {
+		return nil, llm.ErrRequestShouldNotBeNull
+	}
+
+	if len(req.Requests) == 0 {
+		return nil, llm.ErrNoInput
+	}
+
+	modelName := req.ModelName
+	if modelName == "" {
+		if m, ok := cli.DefaultModel(llm.ModelEmbed); ok {
+			modelName = m.Name()
+		} else {
+			modelName = DefaultGenModel
+		}
+	}
+
+	buf := bytes.NewBuffer(nil)
+	formter := "%d-%s" + formater(len(req.Requests))
+	now := time.Now().Unix()
+	for i, r := range req.Requests {
+		var body any
+		var jsonl OpenAIBatchJsonL
+
+		switch subr := r.(type) {
+		case *llm.GenerateRequest:
+			body = responses.ResponseNewParams{
+				Model: modelName,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfInputItemList: toResponseInputParam(subr.Messages),
+				},
+			}
+
+			jsonl = OpenAIBatchJsonL{
+				CustomID: fmt.Sprintf("gen-"+formter, now, req.BatchJobName, i),
+				Endpoint: openai.BatchNewParamsEndpointV1Responses,
+			}
+		case *llm.EmbedRequest:
+			input := make([]string, len(subr.Inputs))
+			for i := range subr.Inputs {
+				input[i] = subr.Inputs[i].String()
+			}
+
+			tmp := openai.EmbeddingNewParams{
+				Input: openai.EmbeddingNewParamsInputUnion{
+					OfArrayOfStrings: input,
+				},
+				Model:          modelName,
+				EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
+			}
+			if cli.EmbedDim > 0 {
+				tmp.Dimensions = openai.Int(cli.EmbedDim)
+			}
+			body = tmp
+			jsonl = OpenAIBatchJsonL{
+				CustomID: fmt.Sprintf("embed-"+formter, now, req.BatchJobName, i),
+				Endpoint: openai.BatchNewParamsEndpointV1Embeddings,
+			}
+		default:
+			return nil, fmt.Errorf("%s: %T", llm.ErrNotImplemented, r)
+		}
+
+		jsonl.Method = http.MethodPost
+		jsonl.Body = body
+
+		data, err := json.Marshal(jsonl)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal %d-th request to jsonl: %w", i, err)
+		}
+		buf.Write(data)
+		buf.WriteByte('\n')
+	}
+
+	var opts []option.RequestOption
+	if v, ok := req.BatchCreateConfig.([]option.RequestOption); ok {
+		opts = v
+	}
+
+	file, err := cli.File(ctx, buf, fmt.Sprintf("%d-%s", now, req.BatchJobName), "application/jsonl", opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jsonl file for batch: %w", err)
+	}
+
+	metadata := shared.Metadata{
+		"name": req.BatchJobName,
+	}
+	for k, v := range req.Metadata {
+		metadata[k] = v
+	}
+
+	batch, err := cli.OpenAI.Batches.New(
+		ctx,
+		openai.BatchNewParams{
+			CompletionWindow: openai.BatchNewParamsCompletionWindow24h,
+			Endpoint:         openai.BatchNewParamsEndpoint(req.Endpoint),
+			InputFileID:      file.ID,
+			Metadata:         metadata,
+		},
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create batch: %w", err)
+	}
+
+	return &llm.BatchResponse{
+		ID:           batch.ID,
+		OutputFileID: batch.OutputFileID,
+		Status:       string(batch.Status),
+		IsDone:       isTerminalJobState(batch.Status),
+		CreatedAt:    time.Unix(batch.CreatedAt, 0),
+		StartAt:      time.Unix(batch.InProgressAt, 0),
+		EndAt:        time.Unix(batch.CompletedAt, 0),
+		UpdateAt:     time.Unix(batch.CreatedAt, 0),
+		Responses:    nil,
+		Raw: map[string]any{
+			"file":  file,
+			"batch": batch,
+		},
+	}, nil
+}
+
+func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
+	var opts []option.RequestOption
+	if v, ok := req.StatusCheckConfig.([]option.RequestOption); ok {
+		opts = v
+	}
+
+	batch, err := cli.OpenAI.Batches.Get(ctx, req.ID, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create batch: %w", err)
+	}
+
+	resp := &llm.BatchResponse{
+		ID:           batch.ID,
+		OutputFileID: batch.OutputFileID,
+		Status:       string(batch.Status),
+		IsDone:       isTerminalJobState(batch.Status),
+		CreatedAt:    time.Unix(batch.CreatedAt, 0),
+		StartAt:      time.Unix(batch.InProgressAt, 0),
+		EndAt:        time.Unix(batch.CompletedAt, 0),
+		UpdateAt:     time.Unix(batch.CreatedAt, 0),
+		Responses:    nil,
+		Raw: map[string]any{
+			"batch": batch,
+		},
+	}
+
+	if isTerminalJobState(batch.Status) {
+		return resp, nil
+	}
+
+	opts = nil
+	if v, ok := req.StatusCheckConfig.([]option.RequestOption); ok {
+		opts = v
+	}
+
+	file, err := cli.OpenAI.Files.Content(ctx, batch.OutputFileID, opts...)
+	resp.Raw = file
+	if err != nil {
+		return resp, fmt.Errorf("failed to get output file: %w", err)
+	}
+
+	if file.StatusCode != http.StatusOK {
+		defer file.Body.Close()
+		body, err := io.ReadAll(file.Body)
+		if err != nil {
+			return resp, fmt.Errorf("failed to get output file: %s (%d), body: read error: %w", file.Status, file.StatusCode, err)
+		}
+		return resp, fmt.Errorf("failed to get output file: %s (%d), body: %s", file.Status, file.StatusCode, string(body))
+	}
+
+	defer file.Body.Close()
+	body, err := io.ReadAll(file.Body)
+	if err != nil {
+		return resp, fmt.Errorf("failed to get output file: %w", err)
+	}
+	resp.Responses = bytes.Split(body, []byte("\n"))
+	return resp, nil
+}
+
+func (cli *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
 	return llm.ErrNotImplemented
 }
 
-// // toOpenAIMessages converts the internal message format to the OpenAI format.
-// func toOpenAIMessages(messages []llm.Message) []openai.ChatCompletionMessage {
-// 	apiMessages := make([]openai.ChatCompletionMessage, len(messages))
-// 	for i, msg := range messages {
-// 		var role string
-// 		switch msg.Role {
-// 		case llm.RoleSystem:
-// 			role = openai.ChatMessageRoleSystem
-// 		case llm.RoleUser:
-// 			role = openai.ChatMessageRoleUser
-// 		case llm.RoleAssistant:
-// 			role = openai.ChatMessageRoleAssistant
-// 		default:
-// 			// Default to user role if role is unspecified or unknown
-// 			role = openai.ChatMessageRoleUser
-// 		}
-// 		apiMessages[i] = openai.ChatCompletionMessage{
-// 			Role:    role,
-// 			Content: msg.Content[0], // Assuming single content for simplicity
-// 		}
-// 	}
-// 	return apiMessages
-// }
+func formater(n int) string {
+	digit := 0
+	for ; n > 0; n /= 10 {
+		digit++
+	}
+	return fmt.Sprintf("%%0%dd", digit)
+}
 
 func healthCheck(ctx context.Context, cli openai.Client) error {
 	var err error
@@ -514,4 +681,17 @@ func toResponseInputParam(msgs []llm.Message) responses.ResponseInputParam {
 		}
 	}
 	return param
+}
+
+// isTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
+func isTerminalJobState(status openai.BatchStatus) bool {
+	switch status {
+	case openai.BatchStatusCompleted,
+		openai.BatchStatusFailed,
+		openai.BatchStatusCancelled,
+		openai.BatchStatusExpired:
+		return true
+	default:
+		return false
+	}
 }

@@ -22,28 +22,15 @@ var (
 
 type Role string
 
-type Text struct {
-	Content string
-	Prefix  string
-}
-
-func NewSimpleText(content string) Text {
-	return Text{Content: content}
-}
-
-func (t Text) String() string {
-	return fmt.Sprintf("%s%s", t.Prefix, t.Content)
-}
-
-type EmbedInput interface {
-	String() string
-}
-
 const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 )
+
+type Request interface {
+	Endpoint() string
+}
 
 type Message struct {
 	Role    Role
@@ -56,6 +43,10 @@ type GenerateRequest struct {
 	Config    any
 }
 
+func (req GenerateRequest) Endpoint() string {
+	return "generate"
+}
+
 type GenerateResponse struct {
 	Outputs []string
 	Raw     any
@@ -65,6 +56,10 @@ type EmbedRequest struct {
 	Inputs    []EmbedInput
 	ModelName string
 	Config    any
+}
+
+func (req EmbedRequest) Endpoint() string {
+	return "embedding"
 }
 
 type EmbedResponse struct {
@@ -95,27 +90,32 @@ func (embed Embedding) String() string {
 }
 
 type BatchRequest struct {
-	ModelName    string             `json:"model_name"`
-	BatchJobName string             `json:"batch_job_name"`
-	Requests     []*GenerateRequest `json:"requests"`
-	Config       any                `json:"config"`
+	ModelName         string            `json:"model_name"`
+	BatchJobName      string            `json:"batch_job_name"`
+	Endpoint          string            `json:"endpoint"`
+	Requests          []Request         `json:"requests"`
+	Metadata          map[string]string `json:"meta_data"`
+	FileUploadConfig  any               `json:"file_upload_config"`
+	BatchCreateConfig any               `json:"batch_create_config"`
 }
 
 type BatchResponse struct {
-	ID        string              `json:"id"`
-	Status    string              `json:"status"`
-	IsDone    bool                `json:"is_done"`
-	CreatedAt time.Time           `json:"created_at"`
-	StartAt   time.Time           `json:"start_at"`
-	EndAt     time.Time           `json:"end_at"`
-	UpdateAt  time.Time           `json:"update_at"`
-	Responses []*GenerateResponse `json:"responses"`
-	Raw       any                 `json:"raw"`
+	ID           string    `json:"id"`
+	OutputFileID string    `json:"output_file_id"`
+	Status       string    `json:"status"`
+	IsDone       bool      `json:"is_done"`
+	CreatedAt    time.Time `json:"created_at"`
+	StartAt      time.Time `json:"start_at"`
+	EndAt        time.Time `json:"end_at"`
+	UpdateAt     time.Time `json:"update_at"`
+	Responses    [][]byte  `json:"responses"`
+	Raw          any       `json:"raw"`
 }
 
 type BatchRetrieveRequest struct {
-	ID     string `json:"id"`
-	Config any    `json:"config"`
+	ID                string `json:"id"`
+	StatusCheckConfig any    `json:"status_check_config"`
+	RetrieveConfig    any    `json:"retrieve_config"`
 }
 
 type BatchCancelRequest struct {

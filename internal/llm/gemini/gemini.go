@@ -45,12 +45,22 @@ type builder struct {
 	DefaultEmbed string
 }
 
+// NewGeminiModel creates a new GeminiModel with the specified model type and name.
 func NewGeminiModel(modelType llm.ModelType, name string) GeminiModel {
 	return GeminiModel{
 		BaseModel: llm.NewBaseModel(modelType, name),
 	}
 }
 
+// Gemini creates a new Gemini client with the given context and options.
+// It initializes the client, validates models, and sets up default models.
+// Parameters:
+//   - ctx: The context for the client initialization.
+//   - opts: Functional options to configure the Gemini client.
+//
+// Returns:
+//   - *Client: The initialized Gemini client.
+//   - error: An error if client creation fails.
 func Gemini(ctx context.Context, opts ...Option) (*Client, error) {
 	b := &builder{}
 	for _, opt := range opts {
@@ -140,12 +150,21 @@ func Gemini(ctx context.Context, opts ...Option) (*Client, error) {
 
 // Generate sends a content generation request to the Gemini API using the specified model and configuration.
 // Parameters:
+//   - ctx: The context for the request.
 //   - req: llm.GenerateRequest containing the messages and model information.
 //
 // Returns:
 //   - *llm.GenerateResponse with the generated output and raw response.
 //   - error if the request fails or the configuration type is invalid.
 func (cli *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	if req == nil {
+		return nil, llm.ErrRequestShouldNotBeNull
+	}
+
+	if len(req.Messages) == 0 {
+		return nil, llm.ErrNoInput
+	}
+
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
@@ -160,23 +179,39 @@ func (cli *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm
 		return nil, err
 	}
 
-	gConf, err := assertAs[*genai.GenerateContentConfig](req.Config)
+	config, err := assertAs[*genai.GenerateContentConfig](req.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	gResp, err := cli.GenAI.Models.GenerateContent(ctx, modelName, contents, gConf)
+	resp, err := cli.GenAI.Models.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &llm.GenerateResponse{
-		Outputs: []string{gResp.Text()},
-		Raw:     gResp,
+		Outputs: []string{resp.Text()},
+		Raw:     resp,
 	}, nil
 }
 
+// Embed generates embeddings for the given request using the Gemini API.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.EmbedRequest containing the inputs and model information.
+//
+// Returns:
+//   - *llm.EmbedResponse with the generated embeddings and raw response.
+//   - error if the request fails or the configuration type is invalid.
 func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
+	if req == nil {
+		return nil, llm.ErrRequestShouldNotBeNull
+	}
+
+	if len(req.Inputs) == 0 {
+		return nil, llm.ErrNoInput
+	}
+
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelEmbed); ok {
@@ -191,73 +226,89 @@ func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.Embed
 		contents[i] = genai.NewContentFromText(input.String(), genai.RoleUser)
 	}
 
-	gConf, err := assertAs[*genai.EmbedContentConfig](req.Config)
+	config, err := assertAs[*genai.EmbedContentConfig](req.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	gResp, err := cli.GenAI.Models.EmbedContent(ctx, modelName, contents, gConf)
+	resp, err := cli.GenAI.Models.EmbedContent(ctx, modelName, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
-	resp := &llm.EmbedResponse{
-		Embeddings: make([]llm.Embedding, len(gResp.Embeddings)),
-		Model:      modelName,
-		Raw:        gResp,
-	}
-
-	for i, embed := range gResp.Embeddings {
-		resp.Embeddings[i] = llm.Embedding{
+	embeds := make([]llm.Embedding, len(resp.Embeddings))
+	for i, embed := range resp.Embeddings {
+		embeds[i] = llm.Embedding{
 			State:  llm.EmbedStateOk,
 			Values: embed.Values,
 		}
 
 		if embed.Statistics != nil && embed.Statistics.Truncated {
-			resp.Embeddings[i].State = llm.EmbedStateTruncated
+			embeds[i].State = llm.EmbedStateTruncated
 		}
 	}
-	return resp, nil
+	return &llm.EmbedResponse{
+		Embeddings: embeds,
+		Model:      modelName,
+		Raw:        resp,
+	}, nil
 }
 
-func (cli *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
+// BatchGenerate processes multiple generation requests in a single batch job using the Gemini API.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.BatchRequest containing multiple generation requests.
+//
+// Returns:
+//   - *llm.BatchResponse with the batch job details.
+//   - error if the request fails.
+func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
+
 	inlineReqs := make([]*genai.InlinedRequest, len(req.Requests))
 	for i, r := range req.Requests {
-		contents, err := toGenAIContents(r.Messages)
-		if err != nil {
-			return nil, err
-		}
-
-		gConf, err := assertAs[*genai.GenerateContentConfig](r.Config)
-		if err != nil {
-			return nil, err
-		}
-
-		modelName := r.ModelName
-		if modelName == "" {
-			if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
-				modelName = m.Name()
-			} else {
-				modelName = DefaultGenModel
+		switch subreq := r.(type) {
+		case *llm.GenerateRequest:
+			contents, err := toGenAIContents(subreq.Messages)
+			if err != nil {
+				return nil, err
 			}
-		}
 
-		inlineReqs[i] = &genai.InlinedRequest{
-			Model:    modelName,
-			Contents: contents,
-			Config:   gConf,
+			gConf, err := assertAs[*genai.GenerateContentConfig](subreq.Config)
+			if err != nil {
+				return nil, err
+			}
+
+			modelName := subreq.ModelName
+			if modelName == "" {
+				if m, ok := cli.DefaultModel(llm.ModelGenerate); ok {
+					modelName = m.Name()
+				} else {
+					modelName = DefaultGenModel
+				}
+			}
+
+			inlineReqs[i] = &genai.InlinedRequest{
+				Model:    modelName,
+				Contents: contents,
+				Config:   gConf,
+			}
+		case *llm.EmbedRequest:
+			return nil, llm.ErrNotImplemented
+		default:
+			return nil, llm.ErrNotImplemented
 		}
 	}
 
-	var gConf *genai.CreateBatchJobConfig
-	if req.Config != nil {
-		gConf, err := assertAs[*genai.CreateBatchJobConfig](req.Config)
+	var config *genai.CreateBatchJobConfig
+	if req.BatchCreateConfig != nil {
+		var err error
+		config, err = assertAs[*genai.CreateBatchJobConfig](req.BatchCreateConfig)
 		if err != nil {
 			return nil, err
 		}
-		gConf.DisplayName = req.BatchJobName
+		config.DisplayName = req.BatchJobName
 	} else {
-		gConf = &genai.CreateBatchJobConfig{
+		config = &genai.CreateBatchJobConfig{
 			DisplayName: req.BatchJobName,
 		}
 	}
@@ -271,7 +322,11 @@ func (cli *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*l
 		}
 	}
 	job, err := cli.GenAI.Batches.Create(
-		ctx, modelName, &genai.BatchJobSource{InlinedRequests: inlineReqs}, gConf,
+		ctx, modelName, &genai.BatchJobSource{
+			Format:          "jsonl",
+			InlinedRequests: inlineReqs,
+		},
+		config,
 	)
 	if err != nil {
 		return nil, err
@@ -280,15 +335,24 @@ func (cli *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*l
 	return &llm.BatchResponse{
 		ID:        job.Name,
 		Status:    string(job.State),
-		IsDone:    job.State == genai.JobStateSucceeded,
+		IsDone:    isTerminalJobState(job.State),
 		CreatedAt: job.CreateTime,
 		StartAt:   job.StartTime,
 		EndAt:     job.EndTime,
 		UpdateAt:  job.UpdateTime,
+		Responses: nil,
 		Raw:       job,
 	}, err
 }
 
+// BatchRetrieve retrieves the status and results of a previously submitted batch job from the Gemini API.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.BatchRetrieveRequest containing the ID of the batch job to retrieve.
+//
+// Returns:
+//   - *llm.BatchResponse with the batch job details and results if completed.
+//   - error if the request fails.
 func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
 	conf, err := assertAs[*genai.GetBatchJobConfig](req.Config)
 	if err != nil {
@@ -314,7 +378,7 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 	return &llm.BatchResponse{
 		ID:        job.Name,
 		Status:    string(job.State),
-		IsDone:    isTerminalJobState(string(job.State)),
+		IsDone:    isTerminalJobState(job.State),
 		CreatedAt: job.CreateTime,
 		StartAt:   job.StartTime,
 		EndAt:     job.EndTime,
@@ -324,10 +388,17 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 	}, err
 }
 
+// BatchCancel cancels a running batch job on the Gemini API.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.BatchCancelRequest containing the ID of the batch job to cancel.
+//
+// Returns:
+//   - error if the request fails.
 func (cli *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
-	gConf, err := assertAs[*genai.CancelBatchJobConfig](req.Config)
+	config, err := assertAs[*genai.CancelBatchJobConfig](req.Config)
 	if err != nil {
 		return err
 	}
-	return cli.GenAI.Batches.Cancel(ctx, req.ID, gConf)
+	return cli.GenAI.Batches.Cancel(ctx, req.ID, config)
 }

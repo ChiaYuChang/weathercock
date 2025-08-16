@@ -13,8 +13,9 @@ var (
 	ErrInvalidConfigType    = errors.New("invalid config type")
 )
 
-func isTerminalJobState(status string) bool {
-	switch genai.JobState(status) {
+// isTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
+func isTerminalJobState(status genai.JobState) bool {
+	switch status {
 	case genai.JobStateSucceeded,
 		genai.JobStateFailed,
 		genai.JobStateCancelled,
@@ -25,7 +26,7 @@ func isTerminalJobState(status string) bool {
 	}
 }
 
-// toGenAIContents conver []llm.Messages to []*genai.Contetn
+// toGenAIContents converts a slice of llm.Message to a slice of *genai.Content.
 func toGenAIContents(messages []llm.Message) ([]*genai.Content, error) {
 	contents := make([]*genai.Content, len(messages))
 	for i, msg := range messages {
@@ -48,6 +49,7 @@ func toGenAIContents(messages []llm.Message) ([]*genai.Content, error) {
 	return contents, nil
 }
 
+// assertAs performs a type assertion, returning the result or an error if the assertion fails.
 func assertAs[T any](conf any) (T, error) {
 	if conf == nil {
 		var zero T

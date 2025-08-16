@@ -9,47 +9,49 @@ import (
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
-	"github.com/ChiaYuChang/weathercock/internal/llm/openai"
+	openaiplug "github.com/ChiaYuChang/weathercock/internal/llm/openai"
+	"github.com/openai/openai-go/v2"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenRouter(t *testing.T) {
 	model := "openai/gpt-oss-20b:free"
-	cli, err := openai.OpenAI(context.Background(),
-		openai.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
-		openai.WithBaseURL("https://openrouter.ai/api/v1"),
-		openai.WithModel(
-			openai.NewOpenAIModel(llm.ModelGenerate, model),
-			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
+	cli, err := openaiplug.OpenAI(context.Background(),
+		openaiplug.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
+		openaiplug.WithBaseURL("https://openrouter.ai/api/v1"),
+		openaiplug.WithModel(
+			openaiplug.NewOpenAIModel(llm.ModelGenerate, model),
+			openaiplug.NewOpenAIModel(llm.ModelEmbed, openaiplug.DefaultEmbedModel),
 		),
-		openai.WithDefaultGenerate(model),
-		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
-		openai.WithMaxRetries(3),
-		openai.WithTimeout(30*time.Second),
-		openai.UseChatChatCompletions(),
+		openaiplug.WithDefaultGenerate(model),
+		openaiplug.WithDefaultEmbed(openaiplug.DefaultEmbedModel),
+		openaiplug.WithMaxRetries(3),
+		openaiplug.WithTimeout(30*time.Second),
+		openaiplug.UseChatChatCompletions(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(&llm.GenerateRequest{
-			Context: context.Background(),
-			Messages: []llm.Message{
-				{
-					Role: llm.RoleSystem,
-					Content: []string{
-						"You are a helpful assistant.",
-						"You always try to answer users question within 100 words.",
+		resp, err := cli.Generate(
+			context.Background(),
+			&llm.GenerateRequest{
+				Messages: []llm.Message{
+					{
+						Role: llm.RoleSystem,
+						Content: []string{
+							"You are a helpful assistant.",
+							"You always try to answer users question within 100 words.",
+						},
+					},
+					{
+						Role: llm.RoleUser,
+						Content: []string{
+							"Please introduce yourself within 100 words.",
+						},
 					},
 				},
-				{
-					Role: llm.RoleUser,
-					Content: []string{
-						"Please introduce yourself within 100 words.",
-					},
-				},
-			},
-		})
+			})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Outputs)
 		for _, output := range resp.Outputs {
@@ -71,17 +73,17 @@ func TestOpenAI(t *testing.T) {
 	}
 
 	embedDim := 1024
-	cli, err := openai.OpenAI(context.Background(),
-		openai.WithAPIKey(key),
-		openai.WithMaxRetries(3),
-		openai.WithTimeout(30*time.Second),
-		openai.WithModel(
-			openai.NewOpenAIModel(llm.ModelGenerate, openai.DefaultGenModel),
-			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
+	cli, err := openaiplug.OpenAI(context.Background(),
+		openaiplug.WithAPIKey(key),
+		openaiplug.WithMaxRetries(3),
+		openaiplug.WithTimeout(30*time.Second),
+		openaiplug.WithModel(
+			openaiplug.NewOpenAIModel(llm.ModelGenerate, openaiplug.DefaultGenModel),
+			openaiplug.NewOpenAIModel(llm.ModelEmbed, openaiplug.DefaultEmbedModel),
 		),
-		openai.WithDefaultGenerate(openai.DefaultGenModel),
-		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
-		openai.WithEmbedDim(embedDim),
+		openaiplug.WithDefaultGenerate(openaiplug.DefaultGenModel),
+		openaiplug.WithDefaultEmbed(openaiplug.DefaultEmbedModel),
+		openaiplug.WithEmbedDim(embedDim),
 	)
 
 	if err != nil {
@@ -91,24 +93,25 @@ func TestOpenAI(t *testing.T) {
 	require.NotNil(t, cli)
 
 	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(&llm.GenerateRequest{
-			Context: context.Background(),
-			Messages: []llm.Message{
-				{
-					Role: llm.RoleSystem,
-					Content: []string{
-						"You are a helpful assistant.",
-						"You always try to answer users question within 100 words.",
+		resp, err := cli.Generate(
+			context.Background(),
+			&llm.GenerateRequest{
+				Messages: []llm.Message{
+					{
+						Role: llm.RoleSystem,
+						Content: []string{
+							"You are a helpful assistant.",
+							"You always try to answer users question within 100 words.",
+						},
+					},
+					{
+						Role: llm.RoleUser,
+						Content: []string{
+							"Please introduce yourself within 100 words.",
+						},
 					},
 				},
-				{
-					Role: llm.RoleUser,
-					Content: []string{
-						"Please introduce yourself within 100 words.",
-					},
-				},
-			},
-		})
+			})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Outputs)
 		for _, output := range resp.Outputs {
@@ -129,13 +132,13 @@ func TestOpenAI(t *testing.T) {
 
 		inputs := make([]llm.EmbedInput, len(texts))
 		for i, text := range texts {
-			inputs[i] = llm.NewSimpleText(text)
+			inputs[i] = llm.NewSimpleTextInput(text)
 		}
 
-		resp, err := cli.Embed(&llm.EmbedRequest{
-			Ctx:    context.Background(),
-			Inputs: inputs,
-		})
+		resp, err := cli.Embed(context.Background(),
+			&llm.EmbedRequest{
+				Inputs: inputs,
+			})
 		require.NoError(t, err)
 		require.Len(t, resp.Embeddings, len(inputs))
 
@@ -149,4 +152,69 @@ func TestOpenAI(t *testing.T) {
 			require.Len(t, embed.Values, embedDim)
 		}
 	})
+}
+
+func TestOpenAI_Batch(t *testing.T) {
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		t.Skip("OPENAI_API_KEY not found, skip test")
+	}
+
+	embedDim := 1024
+	cli, err := openaiplug.OpenAI(context.Background(),
+		openaiplug.WithAPIKey(key),
+		openaiplug.WithMaxRetries(3),
+		openaiplug.WithTimeout(30*time.Second),
+		openaiplug.WithModel(
+			openaiplug.NewOpenAIModel(llm.ModelGenerate, openaiplug.DefaultGenModel),
+			openaiplug.NewOpenAIModel(llm.ModelEmbed, openaiplug.DefaultEmbedModel),
+		),
+		openaiplug.WithDefaultGenerate(openaiplug.DefaultGenModel),
+		openaiplug.WithDefaultEmbed(openaiplug.DefaultEmbedModel),
+		openaiplug.WithEmbedDim(embedDim),
+	)
+
+	if err != nil {
+		t.Skipf("could not connet to openai, skip test: %v", err)
+	}
+	require.NotNil(t, cli)
+
+	filename := "../test_embd.txt"
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	require.NotNil(t, data)
+
+	texts := strings.Split(string(data), "\n")
+	require.NotEmpty(t, texts)
+	reqs := make([]llm.Request, 0, len(texts)/10+1)
+	for i, j := 0, 0; i < len(texts); i++ {
+		inputs := []llm.EmbedInput{}
+		for j = i; j < i+10 && j < len(texts); j++ {
+			inputs = append(inputs, llm.NewSimpleTextInput(texts[j]))
+		}
+		i = j - 1
+		reqs = append(reqs, &llm.EmbedRequest{
+			Inputs:    inputs,
+			ModelName: cli.DefaultModels[llm.ModelEmbed],
+		})
+	}
+
+	t.Log(len(reqs))
+
+	resp, err := cli.BatchCreate(context.Background(),
+		&llm.BatchRequest{
+			ModelName:    cli.DefaultModels[llm.ModelEmbed],
+			Endpoint:     string(openai.BatchNewParamsEndpointV1Embeddings),
+			BatchJobName: "openai-batch-test",
+			Requests:     reqs,
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	batch, err := json.MarshalIndent(resp, "", "  ")
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	t.Log(string(batch))
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -16,14 +17,17 @@ import (
 )
 
 var (
+	ErrNoBaseURL             = errors.New("base URL cannot be empty")
 	ErrNoDefaultModel        = errors.New("no default model")
 	ErrIncompleteResponse    = errors.New("ollama request failed: response was incomplete")
-	ErrNotImplemented        = errors.New("not implemented")
 	ErrCanNotConnectToServer = errors.New("can not connect to server")
+	ErrModelNotFount         = errors.New("could not retrieve model from ollama API")
+	ErrModelNotSupport       = errors.New("model not support")
+	ErrInvalidOptionsType    = errors.New("invalid options type")
 )
 
 var (
-	Parallel            = 3
+	Parallel            = min(runtime.NumCPU(), 3)
 	MaxRetries          = 4
 	MaxRetryWaitingTime = 10 * time.Second
 )
@@ -56,7 +60,15 @@ type OllamaEmbedRawResp struct {
 	Raw   *api.EmbeddingResponse `json:"raw,omitempty"`
 }
 
-// Ollama creates a new Ollama client.
+// Ollama creates a new Ollama client with the given context and options.
+// It initializes the client, validates models, and sets up default models.
+// Parameters:
+//   - ctx: The context for the client initialization.
+//   - opts: Functional options to configure the Ollama client.
+//
+// Returns:
+//   - *Client: The initialized Ollama client.
+//   - error: An error if client creation fails.
 func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 	b := &builder{Models: make(map[string]llm.Model)}
 	for _, opt := range opts {
@@ -65,10 +77,16 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 		}
 	}
 
-	cli := api.NewClient(b.URL, utils.IfElse(b.Client == nil, http.DefaultClient, b.Client))
 	if len(b.Models) == 0 {
 		return nil, ErrNoDefaultModel
 	}
+
+	if b.URL == nil {
+		return nil, ErrNoBaseURL
+	}
+
+	cli := api.NewClient(b.URL, utils.IfElse(
+		b.Client == nil, http.DefaultClient, b.Client))
 
 	if err := healthCheck(ctx, cli); err != nil {
 		return nil, err
@@ -87,8 +105,7 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 	for name, model := range b.Models {
 		m, err := cli.Show(ctx, &api.ShowRequest{Model: name})
 		if err != nil {
-			return nil, fmt.Errorf("could not retrieve model %s from Ollama API: %w", name, err)
-
+			return nil, fmt.Errorf("%w: %s, %s", ErrModelNotFount, name, err)
 		}
 
 		capabilities := make([]string, len(m.Capabilities))
@@ -100,12 +117,12 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 		case llm.ModelEmbed:
 			if !slices.Contains(capabilities, "embedding") {
 				return nil, fmt.Errorf(
-					"model %s does not support embedding content", name)
+					"%w does not support embedding content: %s", ErrModelNotSupport, name)
 			}
 		case llm.ModelGenerate:
 			if !slices.Contains(capabilities, "completion") {
 				return nil, fmt.Errorf(
-					"model %s does not support generating content", name)
+					"%w generating content: %s", ErrModelNotSupport, name)
 			}
 		}
 
@@ -134,6 +151,13 @@ func Ollama(ctx context.Context, opts ...Option) (*Client, error) {
 }
 
 // Generate produces a response from the Ollama model.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.GenerateRequest containing the messages and model information.
+//
+// Returns:
+//   - *llm.GenerateResponse with the generated output and raw response.
+//   - error if the request fails or the configuration type is invalid.
 func (c *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
@@ -183,7 +207,14 @@ func (c *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.G
 	}, nil
 }
 
-// Embed generates embeddings for the given request.
+// Embed generates embeddings for the given request using the Ollama model.
+// Parameters:
+//   - ctx: The context for the request.
+//   - req: llm.EmbedRequest containing the inputs and model information.
+//
+// Returns:
+//   - *llm.EmbedResponse with the generated embeddings and raw response.
+//   - error if the request fails or the configuration type is invalid.
 func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedResponse, error) {
 	if req == nil {
 		return nil, llm.ErrRequestShouldNotBeNull
@@ -271,16 +302,16 @@ func (c *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.EmbedRe
 }
 
 // BatchGenerate is not supported by Ollama.
-func (c *Client) BatchGenerate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
-	return nil, ErrNotImplemented
+func (c *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
+	return nil, llm.ErrNotImplemented
 }
 
 // BatchRetrieve is not supported by Ollama.
 func (c *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
-	return nil, ErrNotImplemented
+	return nil, llm.ErrNotImplemented
 }
 
 // BatchCancel is not supported by Ollama.
 func (c *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
-	return ErrNotImplemented
+	return llm.ErrNotImplemented
 }

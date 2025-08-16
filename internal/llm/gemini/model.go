@@ -16,6 +16,7 @@ type GeminiModel struct {
 	llm.BaseModel
 }
 
+// MarshalJSON customizes the JSON marshaling of GeminiModel.
 func (model GeminiModel) MarshalJSON() ([]byte, error) {
 	type Alias GeminiModel
 	return json.Marshal(&struct {

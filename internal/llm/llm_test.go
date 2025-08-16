@@ -2,8 +2,10 @@ package llm_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,16 +13,248 @@ import (
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"github.com/ChiaYuChang/weathercock/internal/llm/gemini"
 	"github.com/ChiaYuChang/weathercock/internal/llm/ollama"
+	"github.com/ChiaYuChang/weathercock/internal/llm/openai"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/genai"
 )
 
-func TestGemini(t *testing.T) {
+func TestNewPromptTemplate(t *testing.T) {
+	template := "Instruct: {{.instruct}}\nQuery: {{.query}}"
+	foctory, err := llm.NewPromptTemplateFactory(template)
+	require.NoError(t, err)
+	require.NotNil(t, foctory)
+
+	query := foctory.NewPromptTemplate(map[string]any{
+		"instruct": "Given a web search query, retrieve relevant passages that answer the query",
+		"query":    "新北市政府今日宣布，捷運三鶯線的整體工程進度已超過85%，預計最快明年底便可進入通車測試階段。此消息激勵了鶯歌及周邊地區的房市，許多居民期待交通便利性的提升能帶動地方發展，尤其是觀光產業。市長在受訪時表示，這條路線是新北三環六線中的重要一環，市府將全力監督後續工程，確保如期如質完工，為市民帶來更便捷的生活。",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, query)
+
+	qText := query.String()
+	require.NotEmpty(t, qText)
+	require.Equal(t, template, query.Template())
+	require.Contains(t, qText, query.GetVar("instruct"))
+	require.Contains(t, qText, query.GetVar("query"))
+}
+
+func textGenerateTests(t *testing.T, cli llm.LLM, verbose bool) {
+	tcs := []struct {
+		name         string
+		genReqFunc   func() *llm.GenerateRequest
+		reqErr       error
+		testRespFunc func(t *testing.T, resp *llm.GenerateResponse)
+	}{
+		{
+			name: "nil request",
+			genReqFunc: func() *llm.GenerateRequest {
+				return nil
+			},
+			reqErr: llm.ErrRequestShouldNotBeNull,
+			testRespFunc: func(t *testing.T, resp *llm.GenerateResponse) {
+				require.Nil(t, resp)
+			},
+		},
+		{
+			name: "no input",
+			genReqFunc: func() *llm.GenerateRequest {
+				return &llm.GenerateRequest{}
+			},
+			reqErr: llm.ErrNoInput,
+			testRespFunc: func(t *testing.T, resp *llm.GenerateResponse) {
+				require.Nil(t, resp)
+			},
+		},
+		{
+			name: "OK",
+			genReqFunc: func() *llm.GenerateRequest {
+				return &llm.GenerateRequest{
+					Messages: []llm.Message{
+						{
+							Role: llm.RoleSystem,
+							Content: []string{
+								"You are a helpful assistant.",
+								"You always try to answer users question within 100 words.",
+							},
+						},
+						{
+							Role: llm.RoleUser,
+							Content: []string{
+								"Introduce yourself.",
+							},
+						},
+					},
+				}
+			},
+			reqErr: nil,
+			testRespFunc: func(t *testing.T, resp *llm.GenerateResponse) {
+				require.NotEmpty(t, resp.Outputs)
+				for _, output := range resp.Outputs {
+					require.NotEmpty(t, output)
+					if verbose {
+						t.Log(output)
+					}
+				}
+
+				data, err := json.Marshal(resp)
+				require.NoError(t, err)
+				require.NotNil(t, data)
+			},
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.genReqFunc()
+			resp, err := cli.Generate(context.Background(), req)
+			if tc.reqErr != nil {
+				require.ErrorIs(t, err, tc.reqErr)
+				return
+			}
+			require.NotNil(t, resp)
+			tc.testRespFunc(t, resp)
+		})
+	}
+}
+
+func textEmbedTests(t *testing.T, cli llm.LLM, texts []string, dim int) {
+	instruct := "Given a web search query, retrieve relevant passages that answer the query"
+	template := "Instruct: {{.instruct}}\nQuery: {{.query}}"
+	foctory, err := llm.NewPromptTemplateFactory(template)
+	require.NoError(t, err)
+	require.NotNil(t, foctory)
+
+	tcs := []struct {
+		name         string
+		genReqFunc   func() *llm.EmbedRequest
+		reqErr       error
+		testRespFunc func(t *testing.T, resp *llm.EmbedResponse)
+	}{
+		{
+			name: "nil request",
+			genReqFunc: func() *llm.EmbedRequest {
+				return nil
+			},
+			reqErr: llm.ErrRequestShouldNotBeNull,
+			testRespFunc: func(t *testing.T, resp *llm.EmbedResponse) {
+				require.Nil(t, resp)
+			},
+		},
+		{
+			name: "no input",
+			genReqFunc: func() *llm.EmbedRequest {
+				return &llm.EmbedRequest{}
+			},
+			reqErr: llm.ErrNoInput,
+			testRespFunc: func(t *testing.T, resp *llm.EmbedResponse) {
+				require.Nil(t, resp)
+			},
+		},
+		{
+			name: "small input",
+			genReqFunc: func() *llm.EmbedRequest {
+				n := min(len(texts), 3)
+				inputs := make([]llm.EmbedInput, n)
+				for i, text := range texts[:n] {
+					inputs[i] = foctory.NewPromptTemplate(map[string]any{
+						"instruct": instruct,
+						"query":    text,
+					})
+				}
+
+				return &llm.EmbedRequest{Inputs: inputs}
+			},
+			reqErr: nil,
+			testRespFunc: func(t *testing.T, resp *llm.EmbedResponse) {
+				for _, embed := range resp.Embeddings {
+					require.Equal(t, llm.EmbedStateOk, embed.State)
+					require.NotEmpty(t, embed.Values)
+					if dim > 0 {
+						require.Len(t, embed.Values, dim)
+					}
+				}
+
+				data, err := json.Marshal(resp)
+				require.NoError(t, err)
+				require.NotNil(t, data)
+			},
+		},
+		{
+			name: "large input",
+			genReqFunc: func() *llm.EmbedRequest {
+				n := min(len(texts), 100)
+				inputs := make([]llm.EmbedInput, n)
+				for i, text := range texts[:n] {
+					inputs[i] = foctory.NewPromptTemplate(map[string]any{
+						"instruct": instruct,
+						"query":    text,
+					})
+				}
+				return &llm.EmbedRequest{Inputs: inputs}
+			},
+			reqErr: nil,
+			testRespFunc: func(t *testing.T, resp *llm.EmbedResponse) {
+				for _, embed := range resp.Embeddings {
+					require.Equal(t, llm.EmbedStateOk, embed.State)
+					require.NotEmpty(t, embed.Values)
+					if dim > 0 {
+						require.Len(t, embed.Values, dim)
+					}
+				}
+
+				data, err := json.Marshal(resp)
+				require.NoError(t, err)
+				require.NotNil(t, data)
+			},
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.genReqFunc()
+			resp, err := cli.Embed(context.Background(), req)
+			if tc.reqErr != nil {
+				require.ErrorIs(t, err, tc.reqErr)
+				return
+			}
+			require.Len(t, resp.Embeddings, len(req.Inputs))
+			require.NotNil(t, resp)
+			tc.testRespFunc(t, resp)
+		})
+	}
+}
+
+func TestGeminiGenerate(t *testing.T) {
+	key := os.Getenv("GEMINI_API_KEY")
+	if key == "" {
+		t.Skip("GEMINI_API_KEY not found, skip test")
+	}
+
 	var cli llm.LLM
 	var err error
 	cli, err = gemini.Gemini(
 		context.Background(),
-		gemini.WithAPIKey(os.Getenv("GEMINI_API_KEY")),
+		gemini.WithAPIKey(key),
+	)
+
+	if err != nil {
+		// If we can't connect or the models aren't found, we skip the test.
+		t.Skipf("Skipping Gemini tests: could not connect to gemini API or models not found. Error: %v", err)
+	}
+	require.NotNil(t, cli)
+	textGenerateTests(t, cli, true)
+}
+
+func TestGeminiEmbed(t *testing.T) {
+	key := os.Getenv("GEMINI_API_KEY")
+	if key == "" {
+		t.Skip("GEMINI_API_KEY not found, skip test")
+	}
+
+	var cli llm.LLM
+	var err error
+	cli, err = gemini.Gemini(
+		context.Background(),
+		gemini.WithAPIKey(key),
 	)
 
 	if err != nil {
@@ -29,77 +263,40 @@ func TestGemini(t *testing.T) {
 	}
 	require.NotNil(t, cli)
 
-	t.Run("Generate", func(t *testing.T) {
-		resp, err := cli.Generate(context.Background(), &llm.GenerateRequest{
-			Messages: []llm.Message{
-				{
-					Role: llm.RoleSystem,
-					Content: []string{
-						"你是一個笑話大師，擅長依據觀眾需求回應有趣的笑話",
-					},
-				},
-				{
-					Role: llm.RoleUser,
-					Content: []string{
-						"請說一個生物學相關的笑話",
-						"請用繁體中文回答",
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-		t.Log(resp.Outputs)
-	})
+	filename := "./test_embd.txt"
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	require.NotNil(t, data)
 
-	t.Run("Embed", func(t *testing.T) {
-		var dim int32 = 1024
-		inputs := []llm.EmbedInput{
-			llm.NewSimpleText("Gemini是由Google開發的生成式人工智慧聊天機器人。它基於同名的Gemini系列大型語言模型。是應對OpenAI公司開發的ChatGPT聊天機器人的崛起而開發的。其在2023年3月以有限的規模推出，2023年5月擴展到更多個國家。2024年2月8日從Bard更名為Gemini。"),
-			llm.NewSimpleText("Gemini CLI 在程式編寫方面表現出色，但它的功能遠不止於此。它是一款多功能、本機運作的工具，協助開發者處理從內容生成、問題解決，到深入研究和任務管理等各種任務。"),
-			llm.NewSimpleText("The Google Gen AI SDK provides a unified interface to Gemini 2.5 Pro and Gemini 2.0 models through both the Gemini Developer API and the Gemini API on Vertex AI. With a few exceptions, code that runs on one platform will run on both. This means that you can prototype an application using the Gemini Developer API and then migrate the application to Vertex AI without rewriting your code."),
-		}
-
-		resp, err := cli.Embed(context.Background(), &llm.EmbedRequest{
-			Inputs: inputs,
-			Config: &genai.EmbedContentConfig{
-				TaskType:             gemini.EmbedTaskRetrivalDocument,
-				OutputDimensionality: &dim,
-			},
-		})
-		require.NoError(t, err)
-		require.Len(t, resp.Embeddings, len(inputs))
-		for _, embed := range resp.Embeddings {
-			require.Equal(t, llm.EmbedStateOk, embed.State)
-			require.Equal(t, int(dim), embed.Dim())
-			t.Log(embed)
-		}
-	})
+	texts := strings.Split(string(data), "\n")
+	texts = texts[:50] // save tokens
+	textEmbedTests(t, cli, texts, 0)
 }
 
-type InstructQuery struct {
-	Instruct string
-	Query    string
-}
-
-func (q InstructQuery) String() string {
-	return fmt.Sprintf("Instruct: %s\nQuery: %s", q.Instruct, q.Query)
-}
-
-func TestOllama(t *testing.T) {
+func TestOllamaGenerate(t *testing.T) {
 	var (
 		OllamaHost = "host.docker.internal"
 		OllamaPort = 11434
-		GenModel   = "gemma3n:e4b"
-		EmbedModel = "jeffh/intfloat-multilingual-e5-large-instruct:f32"
-		EmbedDim   = 1024
+		GenModel   = "gemma3:270m"
+		EmbedModel = "bge-large:latest"
 	)
-	var OllamaURL = fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
+
+	OllamaURL := func() string {
+		return fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
+	}
+
+	if tmp := os.Getenv("OLLAMA_HOST"); tmp != "" {
+		OllamaHost = tmp
+	}
+	if tmp := os.Getenv("OLLAMA_PORT"); tmp != "" {
+		OllamaPort, _ = strconv.Atoi(tmp)
+	}
 
 	var cli llm.LLM
 	var err error
 	cli, err = ollama.Ollama(
 		context.Background(),
-		ollama.WithHost(OllamaURL),
+		ollama.WithHost(OllamaURL()),
 		ollama.WithModel(
 			ollama.NewOllamaModel(llm.ModelGenerate, GenModel),
 			ollama.NewOllamaModel(llm.ModelEmbed, EmbedModel),
@@ -111,64 +308,130 @@ func TestOllama(t *testing.T) {
 	if err != nil {
 		// If we can't connect or the models aren't found, we skip the test.
 		t.Skipf("Skipping Ollama tests: could not connect to Ollama server at %s or models not found. Error: %v",
-			OllamaURL, err)
+			OllamaURL(), err)
+	}
+	require.NotNil(t, cli)
+	textGenerateTests(t, cli, false)
+}
+
+func TestOllamaEmbed(t *testing.T) {
+	var (
+		OllamaHost = "host.docker.internal"
+		OllamaPort = 11434
+		GenModel   = "gemma3:270m"
+		EmbedModel = "jeffh/intfloat-multilingual-e5-large-instruct:f32"
+		EmbedDim   = 1024
+	)
+
+	OllamaURL := func() string {
+		return fmt.Sprintf("http://%s:%d", OllamaHost, OllamaPort)
+	}
+
+	if tmp := os.Getenv("OLLAMA_HOST"); tmp != "" {
+		OllamaHost = tmp
+	}
+	if tmp := os.Getenv("OLLAMA_PORT"); tmp != "" {
+		OllamaPort, _ = strconv.Atoi(tmp)
+	}
+
+	var cli llm.LLM
+	var err error
+	cli, err = ollama.Ollama(
+		context.Background(),
+		ollama.WithHost(OllamaURL()),
+		ollama.WithModel(
+			ollama.NewOllamaModel(llm.ModelGenerate, GenModel),
+			ollama.NewOllamaModel(llm.ModelEmbed, EmbedModel),
+		),
+		ollama.WithDefaultGenerate(GenModel),
+		ollama.WithDefaultEmbed(EmbedModel),
+	)
+
+	if err != nil {
+		// If we can't connect or the models aren't found, we skip the test.
+		t.Skipf("Skipping Ollama tests: could not connect to Ollama server at %s or models not found. Error: %v",
+			OllamaURL(), err)
 	}
 	require.NotNil(t, cli)
 
-	t.Run("Generate", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		resp, err := cli.Generate(ctx, &llm.GenerateRequest{
-			Messages: []llm.Message{
-				{
-					Role: llm.RoleSystem,
-					Content: []string{
-						"You are a helpful assistant.",
-						"You always try to answer users question within 100 words.",
-					},
-				},
-				{
-					Role: llm.RoleUser,
-					Content: []string{
-						"Introduce yourself.",
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.NotEmpty(t, resp.Outputs)
-	})
+	filename := "./test_embd.txt"
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	require.NotNil(t, data)
 
-	t.Run("Embed", func(t *testing.T) {
-		data, err := os.ReadFile("./test_embd.txt")
-		require.NoError(t, err)
-		require.NotNil(t, data)
+	texts := strings.Split(string(data), "\n")
+	textEmbedTests(t, cli, texts, EmbedDim)
+}
 
-		instruct := "Given a web search query, retrieve relevant passages that answer the query"
+func TestOpenAIGenerate(t *testing.T) {
+	key := os.Getenv("OPENROUTER_API_KEY")
+	if key == "" {
+		t.Skip("OPENROUTER_API_KEY not found, skip test")
+	}
 
-		lines := strings.Split(string(data), "\n")
-		inputs := make([]llm.EmbedInput, len(lines))
-		for i, line := range lines {
-			inputs[i] = InstructQuery{
-				Instruct: instruct,
-				Query:    line,
-			}
-		}
+	model := "openai/gpt-oss-20b:free"
+	baseURL := "https://openrouter.ai/api/v1"
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		resp, err := cli.Embed(ctx, &llm.EmbedRequest{
-			Inputs:    inputs,
-			ModelName: EmbedModel,
-		})
+	var cli llm.LLM
+	var err error
+	cli, err = openai.OpenAI(context.Background(),
+		openai.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
+		openai.WithBaseURL(baseURL),
+		openai.WithModel(
+			openai.NewOpenAIModel(llm.ModelGenerate, model),
+			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
+		),
+		openai.WithDefaultGenerate(model),
+		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
+		openai.WithMaxRetries(3),
+		openai.WithTimeout(30*time.Second),
+		openai.UseChatChatCompletions(),
+	)
 
-		require.NoError(t, err)
-		require.Len(t, resp.Embeddings, len(inputs))
-		for _, embed := range resp.Embeddings {
-			require.Equal(t, llm.EmbedStateOk, embed.State)
-			require.NotEmpty(t, embed.Values)
-			require.Equal(t, embed.State, llm.EmbedStateOk)
-			require.Equal(t, EmbedDim, embed.Dim())
-		}
-	})
+	if err != nil {
+		t.Skipf("Skipping OpenAI tests: could not connect to openai server at %s or models not found. Error: %v",
+			baseURL, err)
+	}
+	require.NotNil(t, cli)
+	textGenerateTests(t, cli, false)
+}
+
+func TestOpenAIEmbed(t *testing.T) {
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		t.Skip("OPENROUTER_API_KEY not found, skip test")
+	}
+
+	baseURL := "https://openrouter.ai/api/v1"
+	dim := 1024
+
+	var cli llm.LLM
+	var err error
+	cli, err = openai.OpenAI(context.Background(),
+		openai.WithAPIKey(key),
+		openai.WithMaxRetries(3),
+		openai.WithTimeout(30*time.Second),
+		openai.WithModel(
+			openai.NewOpenAIModel(llm.ModelGenerate, openai.DefaultGenModel),
+			openai.NewOpenAIModel(llm.ModelEmbed, openai.DefaultEmbedModel),
+		),
+		openai.WithDefaultGenerate(openai.DefaultGenModel),
+		openai.WithDefaultEmbed(openai.DefaultEmbedModel),
+		openai.WithEmbedDim(dim),
+	)
+
+	if err != nil {
+		t.Skipf("Skipping OpenAI tests: could not connect to openai server at %s or models not found. Error: %v",
+			baseURL, err)
+	}
+	require.NotNil(t, cli)
+
+	filename := "./test_embd.txt"
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	require.NotNil(t, data)
+
+	texts := strings.Split(string(data), "\n")
+	texts = texts[:50] // save tokens
+	textEmbedTests(t, cli, texts, dim)
 }

@@ -33,7 +33,7 @@ func (r *Repo) Create(ctx context.Context, url, text string) (uuid.UUID, error) 
 
 		sCtv, sCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer sCancel()
-		return r.Storage.Task().CreateFromURL(sCtv, url)
+		return r.Storage.Task().CreateFromURL(sCtv, url, nil)
 	}
 
 	vCtx, vCancel := context.WithTimeout(ctx, 1*time.Second)
@@ -41,7 +41,7 @@ func (r *Repo) Create(ctx context.Context, url, text string) (uuid.UUID, error) 
 	global.Validator().VarCtx(vCtx, text, "min=10,max=3000")
 
 	// Check for potential LLM injection patterns in the text
-	if found, pattern := llm.DetectLlmInjection(text); found {
+	if found, pattern := llm.DetectLLMInjection(text); found {
 		err := errors.ErrBadRequest.Clone()
 		err.Message = "Input text contains potential LLM injection patterns"
 		err.Details = []string{
@@ -54,5 +54,5 @@ func (r *Repo) Create(ctx context.Context, url, text string) (uuid.UUID, error) 
 
 	sCtv, sCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer sCancel()
-	return r.Storage.Task().CreateFromText(sCtv, text)
+	return r.Storage.Task().CreateFromText(sCtv, text, nil)
 }

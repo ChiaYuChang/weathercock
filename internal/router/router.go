@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/global"
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"github.com/ChiaYuChang/weathercock/internal/storage"
+	"github.com/ChiaYuChang/weathercock/internal/workers"
+	"github.com/ChiaYuChang/weathercock/internal/workers/publisher"
+	ec "github.com/ChiaYuChang/weathercock/pkgs/errors"
+	"github.com/google/uuid"
 )
 
 type Article struct {
@@ -38,85 +43,103 @@ var TestArticle = Article{
 	Keywords:    []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
 }
 
+func handleError(w http.ResponseWriter, r *http.Request, err error, status, code int, msg string) {
+	log := global.Logger.Error().Str("path", r.URL.Path)
+	if err != nil {
+		log = log.Err(err)
+	}
+	log.Msg(msg)
+
+	var details []string
+	if err != nil {
+		details = []string{err.Error()}
+	}
+
+	e := ec.NewWithHTTPStatus(code, status, msg, details...)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(e.HttpStatusCode)
+	e.MarshalAndWriteTo(w)
+}
+
+func getTaskIDFromCallback(params ...any) (uuid.UUID, error) {
+	if len(params) == 0 {
+		return uuid.Nil, fmt.Errorf("missing parameter: taskID")
+	}
+	taskID, ok := params[0].(uuid.UUID)
+	if !ok {
+		return uuid.Nil, fmt.Errorf("invalid parameter: taskID should be a uuid.UUID")
+	}
+	return taskID, nil
+}
+
 func NewRouter(store storage.Storage) *http.ServeMux {
 	mux := http.NewServeMux()
+
+	pub := publisher.Publisher{
+		Conn: global.NATS().Conn,
+		Js:   global.NATS().Js,
+	}
+
 	// file server
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 
 	// API endpoints
 	mux.HandleFunc("POST /api/v1/task/url", func(w http.ResponseWriter, r *http.Request) {
-		global.Logger.Info().
-			Str("path", r.URL.Path).
-			Msg("Received request for URL task")
-
-		// read form data
 		if err := r.ParseForm(); err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("path", r.URL.Path).
-				Msg("Failed to parse form data")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Failed to parse form data"))
+			handleError(w, r, err, http.StatusBadRequest, ec.ECBadRequest, "failed to parse form data")
 			return
 		}
 
-		// TODO: validate url (e.g. is from tw.news.yahoo.com, is unique, etc.)
-		u := r.Form["query_url"][0]
+		qURL := r.Form["query_url"][0]
 		vCtx, vCancel := context.WithTimeout(r.Context(), 1*time.Second)
 		defer vCancel()
-		err := global.Validator().VarCtx(vCtx, u, "url,required")
+		err := global.Validator().VarCtx(vCtx, qURL, "url,required")
 		if err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("path", r.URL.Path).
-				Str("query_url", u).
-				Msg("Invalid URL format")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid URL format"))
+			global.Logger.Error().Err(err).Str("path", r.URL.Path).Str("query_url", qURL).Msg("invalid URL format")
+			handleError(w, r, err, http.StatusBadRequest, ec.ECBadRequest, "invalid URL format")
 			return
 		}
 
-		// TODO: insert task into database, database should return a task ID (uuid)
-		sCtx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		if u, err := url.Parse(qURL); err != nil || u.Hostname() != "tw.news.yahoo.com" {
+			global.Logger.Error().Err(err).Str("path", r.URL.Path).Str("query_url", qURL).
+				Msg("only support Yahoo news URL")
+			handleError(w, r, err, http.StatusBadRequest, ec.ECBadRequest,
+				"only support Yahoo news URL (tw.news.yahoo.com)")
+			return
+		}
+
+		global.Logger.Info().Str("path", r.URL.Path).Str("query_url", qURL).
+			Msg("received url task")
+
+		ctx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer sCancel()
-		taskID, err := store.Task().CreateFromURL(sCtx, u)
+		taskID, err := store.Task().CreateFromURL(ctx, qURL, func(ctx context.Context, param ...any) error {
+			taskID, err := getTaskIDFromCallback(param...)
+			if err != nil {
+				return err
+			}
+
+			payload, err := json.Marshal(workers.CmdScrapeArticle{
+				BaseMessage: workers.BaseMessage{TaskID: taskID},
+				URL:         qURL,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to marshal scrape task payload: %w", err)
+			}
+
+			_, err = pub.Js.Publish(workers.TaskScrape, payload)
+			if err != nil {
+				return fmt.Errorf("failed to publish scrape task: %w", err)
+			}
+			return nil
+
+		})
+
 		if err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("path", r.URL.Path).
-				Str("query_url", u).
-				Msg("Failed to create task from URL")
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Failed to create task from URL"))
+			global.Logger.Error().Err(err).Str("path", r.URL.Path).Str("query_url", qURL).Msg("failed to create task")
+			handleError(w, r, err, http.StatusInternalServerError, ec.ECDatabaseError, "failed to create task")
 			return
 		}
-
-		// TODO: push to task.create channel
-		// payload, err := json.Marshal(workers.ScrapeTaskPayload{
-		// 	TaskID: taskID,
-		// 	URL:    u,
-		// })
-		// if err != nil {
-		// 	global.Logger.Error().
-		// 		Err(err).
-		// 		Str("path", r.URL.Path).
-		// 		Str("query_url", u).
-		// 		Msg("Failed to marshal scrape task payload")
-		// 	w.WriteHeader(http.StatusInternalServerError)
-		// 	w.Write([]byte("Failed to create task from URL"))
-		// 	return
-		// }
-
-		// if err := global.NATS().Publish(workers.Scrape, payload); err != nil {
-		// 	global.Logger.Error().
-		// 		Err(err).
-		// 		Str("path", r.URL.Path).
-		// 		Str("query_url", u).
-		// 		Msg("Failed to publish scrape task")
-		// 	w.WriteHeader(http.StatusInternalServerError)
-		// 	w.Write([]byte("Failed to create task from URL"))
-		// 	return
-		// }
 
 		w.Header().Set("HX-PUSH-URL", fmt.Sprintf("/task/%s", taskID.String()))
 		w.WriteHeader(http.StatusOK)
@@ -126,76 +149,83 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		defer r.Body.Close()
 		rawBody, err := io.ReadAll(r.Body)
 		if err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("path", r.URL.Path).
-				Str("body", string(rawBody)).
-				Msg("Failed to read request body")
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Failed to read request body"))
+			global.Logger.Error().Err(err).Str("path", r.URL.Path).Str("body", string(rawBody)).Msg("failed to read request body")
+			handleError(w, r, err, http.StatusBadRequest, ec.ECBadRequest, "failed to read request body")
 			return
 		}
+
 		text := strings.TrimSpace(string(rawBody))
-
-		// TODO: detect malicious content in rawBody (e.g. XSS, SQL injection, etc.)
-		if found, _ := llm.DetectLlmInjection(text); found {
-			global.Logger.Error().
-				Str("path", r.URL.Path).
-				Str("body", text).
-				Msg("Detected potential LLM injection in text task")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Detected potential LLM injection in text task"))
+		if len(text) == 0 {
+			global.Logger.Error().Str("path", r.URL.Path).Msg("empty input")
+			handleError(w, r, nil, http.StatusBadRequest, ec.ECBadRequest, "empty input")
 			return
 		}
 
-		// TODO: detect if the content contains titles (start with # at the first line)
+		if found, p := llm.DetectLLMInjection(text); found {
+			global.Logger.Error().Str("path", r.URL.Path).Str("body", text).Str("prompt", p).
+				Msg("detected potential LLM injection in text task")
+			handleError(w, r, nil, http.StatusBadRequest, ec.ECBadRequest,
+				"detected potential LLM injection in text task")
+			return
+		}
+
+		// Detect if the content contains titles (start with # at the first line)
 		contents := strings.Split(text, "\n")
 		var title string
 		if len(contents) > 0 && strings.HasPrefix(contents[0], "#") {
 			title = strings.TrimSpace(contents[0][1:]) // remove the leading '#'
-		} else {
-			// TODO: auto generate title if not provided
-			global.Logger.Warn().
-				Str("path", r.URL.Path).
-				Msg("No title provided, auto-generating title")
-			title = "[[ Auto-Generated Title ]]"
+			contents = contents[1:]                    // remove the title from the contents
 		}
 
 		for i, content := range contents {
 			contents[i] = strings.TrimSpace(content)
 		}
-		global.Logger.Info().
-			Str("path", r.URL.Path).
-			Str("title", title).
-			Strs("contents", contents).
-			Msg("Received text task")
 
-		// TODO: insert task into database, database should return a task ID (uuid)
-		sCtx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		global.Logger.Info().Str("path", r.URL.Path).Str("title", title).Strs("contents", contents).
+			Msg("received text task")
+
+		ctx, sCancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer sCancel()
-		taskID, err := store.Task().CreateFromText(sCtx, text)
+		taskID, err := store.Task().CreateFromText(ctx, text, func(ctx context.Context, param ...any) error {
+			taskID, err := getTaskIDFromCallback(param...)
+			if err != nil {
+				return err
+			}
+
+			if len(title) == 0 {
+				payload, err := json.Marshal(workers.CmdGenerateTitle{
+					BaseMessage: workers.BaseMessage{
+						TaskID: taskID,
+					},
+					Content: text,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to marshal generate title task payload: %w", err)
+				}
+
+				_, err = pub.Js.Publish(workers.TaskGenerateTitle, payload)
+				if err != nil {
+					return fmt.Errorf("failed to publish generate title task: %w", err)
+				}
+			}
+
+			pipe := store.Cache.Pipeline()
+			const ttl = 60 * time.Minute
+			pipe.Set(ctx, fmt.Sprintf("task.%s.title", taskID.String()), title, ttl)
+			pipe.Set(ctx, fmt.Sprintf("task.%s.contents", taskID.String()), contents, ttl)
+			if _, err := pipe.Exec(ctx); err != nil {
+				return fmt.Errorf("failed to execute cache pipeline: %w", err)
+			}
+			return nil
+		})
+
 		if err != nil {
-			global.Logger.Error().
-				Err(err).
-				Str("path", r.URL.Path).
-				Str("query_text", text).
-				Msg("Failed to create task from text")
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Failed to create task from URL"))
+			global.Logger.Error().Err(err).Str("path", r.URL.Path).Strs("context", contents).
+				Msg("failed to create task")
+			handleError(w, r, err, http.StatusInternalServerError, ec.ECDatabaseError,
+				"failed to create task")
 			return
 		}
-
-		cCtx, cCancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cCancel()
-		store.Cache.Set(cCtx,
-			fmt.Sprintf("task.%s.title", taskID.String()),
-			title,
-			60*time.Minute)
-		store.Cache.Set(cCtx,
-			fmt.Sprintf("task.%s.contents", taskID.String()),
-			contents,
-			60*time.Minute)
-
 		w.Header().Set("HX-PUSH-URL", fmt.Sprintf("/api/task/%s", taskID.String()))
 		w.WriteHeader(http.StatusOK)
 	})

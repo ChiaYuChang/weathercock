@@ -3,23 +3,26 @@ package storage
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 
+	"github.com/ChiaYuChang/weathercock/internal/global"
 	"github.com/ChiaYuChang/weathercock/internal/models"
 	ec "github.com/ChiaYuChang/weathercock/pkgs/errors"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 type Storage struct {
-	db    *models.Queries
-	Cache *redis.Client
+	Queries *models.Queries
+	Cache   *redis.Client
+	db      *pgxpool.Conn
 }
 
-func New(db models.DBTX, cache *redis.Client) Storage {
+func New(conn *pgxpool.Conn, cache *redis.Client) Storage {
 	return Storage{
-		db:    models.New(db),
-		Cache: cache,
+		Queries: models.New(conn),
+		Cache:   cache,
+		db:      conn,
 	}
 }
 
@@ -29,7 +32,6 @@ func handlePgxErr(err error) *ec.Error {
 	}
 
 	if pgerr, ok := ec.NewPGErr(err); ok {
-		fmt.Println("convert error to PGErr:", pgerr)
 		var e *ec.Error
 		if pgerrcode.IsIntegrityConstraintViolation(pgerr.Code) {
 			e = ec.ErrDBIntegrityConstrainViolation.Clone()
@@ -42,7 +44,9 @@ func handlePgxErr(err error) *ec.Error {
 		return e
 	}
 
-	fmt.Println("Failed to convert error to PGErr, falling back to generic error handling")
+	global.Logger.Warn().
+		Err(err).
+		Msg("failed to convert error to PGErr, falling back to generic error handling")
 	if errors.Is(err, sql.ErrNoRows) {
 		e := ec.ErrNotFound.Clone().
 			Warp(err)

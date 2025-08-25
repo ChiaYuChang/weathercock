@@ -19,6 +19,7 @@ const (
 
 type Publisher struct {
 	Conn   *nats.Conn
+	Js     nats.JetStreamContext
 	Tracer trace.Tracer
 }
 

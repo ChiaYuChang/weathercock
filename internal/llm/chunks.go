@@ -148,10 +148,10 @@ var LlmInjectionPatterns = []string{
 	"(?i)```[\\s\\S]*?```",
 }
 
-// DetectLlmInjection checks if the input string contains patterns that indicate potential
+// DetectLLMInjection checks if the input string contains patterns that indicate potential
 // LLM injection attacks. It returns true if any of the patterns match, indicating a
 // potential injection attempt.
-func DetectLlmInjection(input string) (bool, string) {
+func DetectLLMInjection(input string) (bool, string) {
 	for _, pattern := range LlmInjectionPatterns {
 		if matched, _ := regexp.MatchString(pattern, input); matched {
 			return true, pattern

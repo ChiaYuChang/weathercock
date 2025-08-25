@@ -9,32 +9,73 @@ import (
 	"github.com/google/uuid"
 )
 
-type Tasks Storage
+type Tasks struct {
+	Storage
+}
 
 func (s Storage) Task() Tasks {
-	return Tasks(s)
+	return Tasks{s}
 }
 
-func (t Tasks) CreateFromURL(ctx context.Context, url string) (uuid.UUID, error) {
-	uid, err := t.db.CreateTask(ctx, models.CreateTaskParams{
+func (t Tasks) CreateFromURL(ctx context.Context, url string,
+	fn func(ctx context.Context, param ...any) error) (uuid.UUID, error) {
+	tx, err := t.db.Begin(ctx)
+	if err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
+	defer tx.Rollback(ctx)
+
+	var uid uuid.UUID
+	if uid, err = t.Queries.WithTx(tx).CreateTask(ctx, models.CreateTaskParams{
 		Source:        models.SourceTypeUrl,
 		OriginalInput: url,
-	})
+	}); err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
 
-	return uid, handlePgxErr(err)
+	if fn != nil {
+		if err = fn(ctx, uid); err != nil {
+			return uuid.UUID{}, err
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
+	return uid, nil
 }
 
-func (t Tasks) CreateFromText(ctx context.Context, text string) (uuid.UUID, error) {
-	uid, err := t.db.CreateTask(ctx, models.CreateTaskParams{
+func (t Tasks) CreateFromText(ctx context.Context, text string,
+	fn func(ctx context.Context, param ...any) error) (uuid.UUID, error) {
+	tx, err := t.db.Begin(ctx)
+	if err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
+	defer tx.Rollback(ctx)
+
+	var uid uuid.UUID
+	if uid, err = t.Queries.WithTx(tx).CreateTask(ctx, models.CreateTaskParams{
 		Source:        models.SourceTypeText,
 		OriginalInput: text,
-	})
-	return uid, handlePgxErr(err)
+	}); err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
+
+	if fn != nil {
+		if err = fn(ctx, uid); err != nil {
+			return uuid.UUID{}, err
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return uuid.UUID{}, handlePgxErr(err)
+	}
+	return uid, nil
 }
 
 func (s Storage) UserTasks() UserTasks {
 	return UserTasks{
-		db: s.db,
+		db: s.Queries,
 	}
 }
 

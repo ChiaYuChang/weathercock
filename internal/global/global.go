@@ -103,10 +103,16 @@ func Mode() string {
 }
 
 // natssrv is a singleton for the NATS connection.
-var natssrv = NewSingleton[nats.Conn]()
+var natssrv = NewSingleton[struct {
+	Conn *nats.Conn
+	Js   nats.JetStreamContext
+}]()
 
 // NATS returns the singleton instance of the NATS connection.
-func NATS() *nats.Conn {
+func NATS() *struct {
+	Conn *nats.Conn
+	Js   nats.JetStreamContext
+} {
 	natssrv.once.Do(func() {
 		if Config().NATS == nil {
 			natssrv.errs = append(natssrv.errs, errors.New("NATS configuration is nil"))
@@ -114,32 +120,49 @@ func NATS() *nats.Conn {
 			return
 		}
 
-		server, err := Config().NATS.Connect()
-		if err != nil {
+		if Config().NATS.JetStream {
+			conn, js, err := Config().NATS.ConnectJetStream()
+			if err != nil {
+				natssrv.errs = append(natssrv.errs,
+					fmt.Errorf("failed to connect to NATS JetStream: %w", err))
+				Logger.Error().
+					Err(natssrv.errs[len(natssrv.errs)-1]).
+					Msg("Failed to connect to NATS JetStream")
+				return
+			}
+			natssrv.instance = &struct {
+				Conn *nats.Conn
+				Js   nats.JetStreamContext
+			}{Conn: conn, Js: js}
+			Logger.Info().Msg("Connected to NATS JetStream")
+		} else {
+			conn, err := Config().NATS.Connect()
+			if err != nil {
+				natssrv.errs = append(natssrv.errs,
+					fmt.Errorf("failed to connect to NATS server: %w", err))
+				Logger.Error().
+					Err(natssrv.errs[len(natssrv.errs)-1]).
+					Msg("Failed to connect to NATS server")
+				return
+			}
+			natssrv.instance = &struct {
+				Conn *nats.Conn
+				Js   nats.JetStreamContext
+			}{Conn: conn}
+			Logger.Info().Msg("Connected to NATS server (core NATS)")
+		}
+
+		// Common NATS connection checks (ping, etc.)
+		if natssrv.instance.Conn == nil {
 			natssrv.errs = append(natssrv.errs,
-				fmt.Errorf("failed to connect to NATS server: %w", err))
+				fmt.Errorf("NATS connection is nil"))
 			Logger.Error().
 				Err(natssrv.errs[len(natssrv.errs)-1]).
-				Msg("Failed to connect to NATS server")
+				Msg("NATS connection is nil")
 			return
 		}
 
-		if server == nil {
-			natssrv.errs = append(natssrv.errs,
-				fmt.Errorf("NATS server is nil"))
-			Logger.Error().
-				Err(natssrv.errs[len(natssrv.errs)-1]).
-				Msg("NATS server is nil")
-			return
-		}
-		Logger.Info().
-			Str("host", Config().NATS.Host).
-			Int("port", Config().NATS.Port).
-			Str("username", Config().NATS.Username).
-			Str("password", utils.Mask(Config().NATS.Password)).
-			Msg("Connected to NATS server")
-
-		for retry := 0; server.Status() != nats.CONNECTED && retry < 5; retry++ {
+		for retry := 0; natssrv.instance.Conn.Status() != nats.CONNECTED && retry < 5; retry++ {
 			wt := 5 * (1 << retry) * time.Second
 			Logger.Warn().
 				Int("retry", retry).
@@ -148,7 +171,7 @@ func NATS() *nats.Conn {
 			time.Sleep(wt)
 		}
 
-		if server.Status() != nats.CONNECTED {
+		if natssrv.instance.Conn.Status() != nats.CONNECTED {
 			natssrv.errs = append(natssrv.errs,
 				fmt.Errorf("failed to connect to NATS server after 5 attempts"))
 			Logger.Error().
@@ -157,7 +180,6 @@ func NATS() *nats.Conn {
 			return
 		}
 		Logger.Info().Msg("Successfully pinged NATS server")
-		natssrv.instance = server
 	})
 
 	if len(natssrv.errs) > 0 {
@@ -360,7 +382,7 @@ func CleanUp() {
 
 	defer natssrv.CleanUp()
 	if natssrv.instance != nil {
-		natssrv.instance.Close()
+		natssrv.instance.Conn.Close()
 		Logger.Info().Msg("NATS connection closed")
 	}
 

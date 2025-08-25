@@ -10,37 +10,32 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	PrefixTask    = "task."
-	PrefixArticle = "article."
-)
-
 // Publish while event has occurred
 const (
 	// task has been created
-	Created = PrefixTask + "created"
+	TaskCreated = "task.created"
 	// news article has been scraped
-	ArticleScraped = PrefixArticle + "scraped"
+	ArticleScraped = "article.scraped"
 	// keywords for the article have been extracted
-	KeywordsExtracted = PrefixArticle + "keywords.extracted"
+	KeywordsExtracted = "article.keywords.extracted"
 	// embedding for the article has been created
-	EmbeddingCreated = PrefixArticle + "embedding.created"
+	EmbeddingCreated = "article.embedding.created"
 )
 
 // Publish while event needs to be performed
 const (
 	// scrape a news article
-	ScrapeArticle = PrefixArticle + "scrape"
+	TaskScrape = "task.scrape"
 	// generate a title for the article
-	GenerateTitle = PrefixArticle + "generate.title"
+	TaskGenerateTitle = "task.generate_title"
 	// extract keywords from the article
-	ExtractKeywords = PrefixArticle + "extract.keywords"
+	TaskExtractKeywords = "task.extract.keyword"
 	// create an embedding for the article
-	CreateEmbedding = PrefixArticle + "create.embedding"
+	TaskCreateEmbedding = "task.create.embedding"
 	// update the status of the task
-	UpdateStatus = PrefixTask + "update.status"
+	TaskUpdateStatus = "task.update.status"
 	// log the task
-	Log = PrefixTask + "logs"
+	TaskLog = "task.logs"
 )
 
 var (
@@ -210,6 +205,7 @@ type CmdScrapeArticle struct {
 
 type CmdGenerateTitle struct {
 	BaseMessage
+	Content string `json:"content"` // Added Content field
 }
 
 type CmdExtractKeywords struct {

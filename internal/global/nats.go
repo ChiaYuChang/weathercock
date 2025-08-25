@@ -11,16 +11,21 @@ import (
 	"github.com/spf13/viper"
 )
 
-const NATSLogSubject = "weathercock.logs"
+const (
+	NATSLogStream        = "weathercock_logs"
+	NATSLogStreamSubject = "weathercock.logs.>"
+	NATSTaskStream       = "weathercock_tasks"
+)
 
 // NATSConfig holds configuration for connecting to a NATS server.
 // Authentication by username and password.
 type NATSConfig struct {
-	Host     string `json:"host"     validate:"required"                  mapstructure:"host"`
-	Port     int    `json:"port"     validate:"required"                  mapstructure:"port"`
-	Username string `json:"username" validate:"required_without=Token"    mapstructure:"username"`
-	Password string `json:"password" validate:"required_without=Token"    mapstructure:"password"`
-	Token    string `json:"token"    validate:"required_without=Password" mapstructure:"token"`
+	Host      string `json:"host"     validate:"required"                  mapstructure:"host"`
+	Port      int    `json:"port"     validate:"required"                  mapstructure:"port"`
+	Username  string `json:"username" validate:"required_without=Token"    mapstructure:"username"`
+	Password  string `json:"password" validate:"required_without=Token"    mapstructure:"password"`
+	Token     string `json:"token"    validate:"required_without=Password" mapstructure:"token"`
+	JetStream bool   `json:"jet_stream"                                    mapstructure:"jet_stream"`
 }
 
 // DefaultNATSConfig returns a default NATSConfig.
@@ -41,6 +46,7 @@ func LoadNATSConfig() *NATSConfig {
 	conf.Port = utils.DefaultIfZero(viper.GetInt("NATS_CLI_PORT"), conf.Port)
 	conf.Username = utils.DefaultIfZero(viper.GetString("NATS_USER"), conf.Username)
 	conf.Password = utils.DefaultIfZero(viper.GetString("NATS_PASS"), conf.Password)
+	conf.JetStream = viper.GetBool("NATS_JETSTREAM")
 	return conf
 }
 
@@ -101,6 +107,53 @@ func (c NATSConfig) Connect() (*nats.Conn, error) {
 	return nats.Connect(c.URL(), nats.UserInfo(c.Username, c.Password))
 }
 
+// ConnectJetStream establishes a connection to the NATS server and initializes JetStream.
+// It also creates the necessary streams if they don't exist.
+func (c NATSConfig) ConnectJetStream() (*nats.Conn, nats.JetStreamContext, error) {
+	nc, err := c.Connect()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+
+	js, err := nc.JetStream()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get JetStream context: %w", err)
+	}
+
+	// Create weathercock_logs stream
+	_, err = js.AddStream(&nats.StreamConfig{
+		Name:     NATSLogStream,
+		Subjects: []string{NATSLogStreamSubject},
+		MaxMsgs:  -1,
+		MaxBytes: -1,
+		MaxAge:   0,
+		Storage:  nats.FileStorage,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add weathercock_logs stream: %w", err)
+	}
+
+	// Create weathercock_tasks stream
+	_, err = js.AddStream(&nats.StreamConfig{
+		Name: NATSTaskStream,
+		Subjects: []string{
+			"task.create",
+			"task.scrape",
+			"task.generate_title",
+			"task.extract.keyword",
+		},
+		MaxMsgs:  -1,
+		MaxBytes: -1,
+		MaxAge:   0,
+		Storage:  nats.FileStorage,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add weathercock_tasks stream: %w", err)
+	}
+
+	return nc, js, nil
+}
+
 // String returns a string representation of the NATSConfig.
 // It masks the password in the string representation.
 func (c NATSConfig) String() string {
@@ -123,7 +176,7 @@ func (c NATSConfig) Validate() error {
 }
 
 type NATSLogWriter struct {
-	Conn    *nats.Conn
+	Js      nats.JetStreamContext
 	Subject string
 }
 
@@ -139,33 +192,13 @@ func (w *NATSLogWriter) extractLevel(s string) string {
 func (w *NATSLogWriter) Write(p []byte) (n int, err error) {
 	level := w.extractLevel(string(p))
 
-	if w.Conn == nil {
-		return 0, nats.ErrConnectionClosed
+	if w.Js == nil {
+		return 0, fmt.Errorf("JetStream context is nil")
 	}
 
-	if err := w.Conn.Publish(fmt.Sprintf("%s.%s", NATSLogSubject, level), p); err != nil {
+	if _, err := w.Js.Publish(fmt.Sprintf("%s.%s", NATSLogStreamSubject, level), p); err != nil {
 		return 0, err
 	}
 
 	return len(p), nil
-}
-
-// implements the io.Reader interface
-type NATSReader struct {
-	Conn    *nats.Conn
-	Subject string
-}
-
-func (r *NATSReader) Read(p []byte) (n int, err error) {
-	if r.Conn == nil {
-		return 0, nats.ErrConnectionClosed
-	}
-
-	msg, err := r.Conn.Request(r.Subject, nil, nats.DefaultTimeout)
-	if err != nil {
-		return 0, err
-	}
-
-	copy(p, msg.Data)
-	return len(msg.Data), nil
 }

@@ -18,7 +18,7 @@ var MD5PublishedAtFormat = time.DateOnly
 
 func (s Storage) UserArticles() UserArticles {
 	return UserArticles{
-		db: s.db,
+		db: s.Queries,
 	}
 }
 
@@ -84,7 +84,7 @@ func (s UserArticles) GetByMD5(ctx context.Context, md5 string) (models.UsersArt
 
 func (s Storage) UserChunks() UserChunks {
 	return UserChunks{
-		db: s.db,
+		db: s.Queries,
 	}
 }
 
@@ -170,7 +170,7 @@ func (s UserChunks) ExtractByArticleID(ctx context.Context, aID int32) ([]string
 
 func (s Storage) UserEmbeddings() UserEmbeddings {
 	return UserEmbeddings{
-		db: s.db,
+		db: s.Queries,
 	}
 }
 

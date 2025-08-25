@@ -8,7 +8,7 @@ import (
 
 func (s Storage) Models() Models {
 	return Models{
-		db: s.db,
+		db: s.Queries,
 	}
 }
 

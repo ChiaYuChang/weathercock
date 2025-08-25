@@ -1,7 +1,9 @@
 package errors
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -34,6 +36,7 @@ const (
 	ECWebpageParsingError = iota + 520
 	ECPressReleaseCollectorError
 	ECValidationError
+	ECNATSJsPublishFailed
 )
 
 const (
@@ -45,11 +48,11 @@ const (
 )
 
 type Error struct {
-	StatusCode int      `json:"-"`
-	Code       int      `json:"code"`
-	Message    string   `json:"message"`
-	Details    []string `json:"details,omitempty"`
-	internal   error
+	InternalStatusCode int      `json:"-"`
+	HttpStatusCode     int      `json:"code"`
+	Message            string   `json:"message"`
+	Details            []string `json:"details,omitempty"`
+	internal           error
 }
 
 var (
@@ -63,13 +66,13 @@ var (
 	ErrDBTypeConversionError         = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseTypeConversionError, "database type conversion error")
 )
 
-func NewWithHTTPStatus(status, code int, message string, details ...string) *Error {
+func NewWithHTTPStatus(internalSC, httpSC int, msg string, details ...string) *Error {
 	return &Error{
-		StatusCode: status,
-		Code:       code,
-		Message:    message,
-		Details:    details,
-		internal:   nil,
+		InternalStatusCode: internalSC,
+		HttpStatusCode:     httpSC,
+		Message:            msg,
+		Details:            details,
+		internal:           nil,
 	}
 }
 
@@ -97,15 +100,15 @@ func FromPgError(e *PGErr) *Error {
 
 func (e *Error) Error() string {
 	if e.internal != nil {
-		return fmt.Sprintf("[%d] %s (original error: %s)", e.Code, e.Message, e.internal.Error())
+		return fmt.Sprintf("[%d] %s (original error: %s)", e.HttpStatusCode, e.Message, e.internal.Error())
 	}
-	return fmt.Sprintf("[%d] %s", e.Code, e.Message)
+	return fmt.Sprintf("[%d] %s", e.HttpStatusCode, e.Message)
 }
 
 func (e *Error) ErrorWithDetails() string {
 	sb := strings.Builder{}
 	sb.WriteString("Error: ")
-	sb.WriteString(fmt.Sprintf("  - [%d] %s\n", e.Code, e.Message))
+	sb.WriteString(fmt.Sprintf("  - [%d] %s\n", e.HttpStatusCode, e.Message))
 	if len(e.Details) > 0 {
 		sb.WriteString("  - Details:\n")
 		for _, detail := range e.Details {
@@ -121,11 +124,11 @@ func (e *Error) ErrorWithDetails() string {
 
 func (e *Error) Clone() *Error {
 	return &Error{
-		StatusCode: e.StatusCode,
-		Code:       e.Code,
-		Message:    e.Message,
-		Details:    append([]string{}, e.Details...),
-		internal:   e.internal,
+		InternalStatusCode: e.InternalStatusCode,
+		HttpStatusCode:     e.HttpStatusCode,
+		Message:            e.Message,
+		Details:            append([]string{}, e.Details...),
+		internal:           e.internal,
 	}
 }
 
@@ -166,8 +169,17 @@ func (e *Error) Unwrap() error {
 
 func (e Error) ToHTTPError() *HTTPError {
 	return &HTTPError{
-		StatusCode: e.StatusCode,
+		StatusCode: e.InternalStatusCode,
 		Message:    e.Message,
 		Details:    e.Details,
 	}
+}
+
+func (e Error) MarshalAndWriteTo(w io.Writer) error {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
 }

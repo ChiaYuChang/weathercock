@@ -13,8 +13,8 @@ var (
 	ErrInvalidConfigType    = errors.New("invalid config type")
 )
 
-// isTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
-func isTerminalJobState(status genai.JobState) bool {
+// IsTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
+func IsTerminalJobState(status genai.JobState) bool {
 	switch status {
 	case genai.JobStateSucceeded,
 		genai.JobStateFailed,

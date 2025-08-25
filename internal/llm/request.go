@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -95,21 +96,25 @@ type BatchRequest struct {
 	Endpoint          string            `json:"endpoint"`
 	Requests          []Request         `json:"requests"`
 	Metadata          map[string]string `json:"meta_data"`
+	ReadWriter        io.ReadWriter     `json:"read_writer"`
 	FileUploadConfig  any               `json:"file_upload_config"`
 	BatchCreateConfig any               `json:"batch_create_config"`
 }
 
 type BatchResponse struct {
-	ID           string    `json:"id"`
-	OutputFileID string    `json:"output_file_id"`
-	Status       string    `json:"status"`
-	IsDone       bool      `json:"is_done"`
-	CreatedAt    time.Time `json:"created_at"`
-	StartAt      time.Time `json:"start_at"`
-	EndAt        time.Time `json:"end_at"`
-	UpdateAt     time.Time `json:"update_at"`
-	Responses    [][]byte  `json:"responses"`
-	Raw          any       `json:"raw"`
+	HTTPStatusCode int       `json:"http_status_code,omitempty"`
+	HTTPMessage    string    `json:"http_message,omitempty"`
+	ID             string    `json:"id"`
+	OutputFileID   string    `json:"output_file_id"`
+	InputFileID    string    `json:"input_file_id"`
+	Status         string    `json:"status"`
+	IsDone         bool      `json:"is_done"`
+	CreatedAt      time.Time `json:"created_at"`
+	StartAt        time.Time `json:"start_at"`
+	EndAt          time.Time `json:"end_at"`
+	UpdateAt       time.Time `json:"update_at"`
+	Responses      [][]byte  `json:"responses"`
+	Raw            any       `json:"raw"`
 }
 
 type BatchRetrieveRequest struct {

@@ -22,7 +22,7 @@ RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION} && \
     . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION} && \
     nvm use default && \
     npm install -g npm@latest && \
-    npm install -g genkit-cli
+    npm install -g @google/gemini-cli
 
 RUN echo "\nexport NVM_DIR=/home/${USERNAME}/.nvm" >> /home/${USERNAME}/.bashrc && \
     echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> /home/${USERNAME}/.bashrc && \

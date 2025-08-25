@@ -1,0 +1,27 @@
+{
+    "name": "Go Dev",
+    "dockerComposeFile": [
+        "../docker-compose.yml",
+        "../docker-compose-dev.yml"
+    ],
+    "service": "development",
+    "workspaceFolder": "/home/cychang/app",
+    "remoteUser": "cychang",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go",
+                "aaron-bond.better-comments",
+                "jinliming2.vscode-go-template",
+                "christian-kohler.path-intellisense",
+                "bierner.color-info",
+                "janisdd.vscode-edit-csv",
+                "azuretools.vscode-docker",
+                "google.geminicodeassist"
+            ],
+            "settings": {
+                "go.useLanguageServer": true
+            }
+        }
+    }
+}

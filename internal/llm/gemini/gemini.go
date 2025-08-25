@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -263,7 +264,6 @@ func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.Embed
 //   - *llm.BatchResponse with the batch job details.
 //   - error if the request fails.
 func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm.BatchResponse, error) {
-
 	inlineReqs := make([]*genai.InlinedRequest, len(req.Requests))
 	for i, r := range req.Requests {
 		switch subreq := r.(type) {
@@ -321,13 +321,23 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 			modelName = DefaultGenModel
 		}
 	}
-	job, err := cli.GenAI.Batches.Create(
-		ctx, modelName, &genai.BatchJobSource{
-			Format:          "jsonl",
-			InlinedRequests: inlineReqs,
-		},
-		config,
-	)
+
+	src := &genai.BatchJobSource{
+		// Format:          "jsonl",
+		InlinedRequests: inlineReqs,
+	}
+
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = req.ReadWriter.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to writer: %w", err)
+	}
+
+	job, err := cli.GenAI.Batches.Create(ctx, modelName, src, config)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +345,7 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 	return &llm.BatchResponse{
 		ID:        job.Name,
 		Status:    string(job.State),
-		IsDone:    isTerminalJobState(job.State),
+		IsDone:    IsTerminalJobState(job.State),
 		CreatedAt: job.CreateTime,
 		StartAt:   job.StartTime,
 		EndAt:     job.EndTime,
@@ -354,7 +364,7 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 //   - *llm.BatchResponse with the batch job details and results if completed.
 //   - error if the request fails.
 func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequest) (*llm.BatchResponse, error) {
-	conf, err := assertAs[*genai.GetBatchJobConfig](req.Config)
+	conf, err := assertAs[*genai.GetBatchJobConfig](req.RetrieveConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -364,21 +374,17 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 		return nil, err
 	}
 
-	var responses []*llm.GenerateResponse
+	var responses [][]byte
 	if job.State == genai.JobStateSucceeded {
-		responses = make([]*llm.GenerateResponse, len(job.Dest.InlinedResponses))
-		for i, resp := range job.Dest.InlinedResponses {
-			responses[i] = &llm.GenerateResponse{
-				Outputs: []string{resp.Response.Text()},
-				Raw:     resp,
-			}
+		for _, resp := range job.Dest.InlinedResponses {
+			responses = append(responses, []byte(resp.Response.Text()))
 		}
 	}
 
 	return &llm.BatchResponse{
 		ID:        job.Name,
 		Status:    string(job.State),
-		IsDone:    isTerminalJobState(job.State),
+		IsDone:    IsTerminalJobState(job.State),
 		CreatedAt: job.CreateTime,
 		StartAt:   job.StartTime,
 		EndAt:     job.EndTime,

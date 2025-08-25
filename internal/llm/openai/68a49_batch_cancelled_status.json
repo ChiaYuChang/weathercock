@@ -1,0 +1,31 @@
+{
+    "id": "batch_68a49aeda4f881908e42162e5d37453e",
+    "completion_window": "24h",
+    "created_at": 1755618029,
+    "endpoint": "/v1/embeddings",
+    "input_file_id": "file-8YvT2JkyAUU8aQ2cY1zT1V",
+    "object": "batch",
+    "status": "cancelled",
+    "cancelled_at": 1755619243,
+    "cancelling_at": 1755618636,
+    "completed_at": 0,
+    "error_file_id": "file-JSiNiDkN7CuPWUvA6tTM44",
+    "errors": {
+        "data": null,
+        "object": ""
+    },
+    "expired_at": 0,
+    "expires_at": 1755704429,
+    "failed_at": 0,
+    "finalizing_at": 0,
+    "in_progress_at": 1755618091,
+    "metadata": {
+        "name": "openai-batch-test-file"
+    },
+    "output_file_id": "",
+    "request_counts": {
+        "completed": 0,
+        "failed": 0,
+        "total": 10
+    }
+}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
@@ -32,6 +33,7 @@ var (
 var (
 	ErrAPIKeyMissing         = errors.New("OpenAI API key is required")
 	ErrCanNotConnectToServer = errors.New("can not connect to server")
+	ErrFailedToGetOutputFile = errors.New("failed to get output file")
 )
 
 // Client implements the llm.LLM interface for OpenAI.
@@ -425,14 +427,14 @@ func (cli *Client) Embed(ctx context.Context, req *llm.EmbedRequest) (*llm.Embed
 	}, nil
 }
 
-type OpenAIBatchJsonL struct {
+type BatchRequestJSONL struct {
 	CustomID string                        `json:"custom_id"`
 	Method   string                        `json:"method"`
 	Endpoint openai.BatchNewParamsEndpoint `json:"url"`
 	Body     any                           `json:"body"`
 }
 
-func (jsonl OpenAIBatchJsonL) ContentType() string {
+func (jsonl BatchRequestJSONL) ContentType() string {
 	return "application/jsonl"
 }
 
@@ -461,6 +463,10 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 		return nil, llm.ErrNoInput
 	}
 
+	if req.ReadWriter == nil {
+		return nil, fmt.Errorf("read writer should not be nil")
+	}
+
 	modelName := req.ModelName
 	if modelName == "" {
 		if m, ok := cli.DefaultModel(llm.ModelEmbed); ok {
@@ -470,12 +476,11 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 		}
 	}
 
-	buf := bytes.NewBuffer(nil)
-	formter := "%d-%s" + formater(len(req.Requests))
+	formatter := "%d-%s-" + formatter(len(req.Requests))
 	now := time.Now().Unix()
 	for i, r := range req.Requests {
 		var body any
-		var jsonl OpenAIBatchJsonL
+		var jsonl BatchRequestJSONL
 
 		switch subr := r.(type) {
 		case *llm.GenerateRequest:
@@ -486,8 +491,8 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 				},
 			}
 
-			jsonl = OpenAIBatchJsonL{
-				CustomID: fmt.Sprintf("gen-"+formter, now, req.BatchJobName, i),
+			jsonl = BatchRequestJSONL{
+				CustomID: fmt.Sprintf("gen-"+formatter, now, req.BatchJobName, i),
 				Endpoint: openai.BatchNewParamsEndpointV1Responses,
 			}
 		case *llm.EmbedRequest:
@@ -507,8 +512,8 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 				tmp.Dimensions = openai.Int(cli.EmbedDim)
 			}
 			body = tmp
-			jsonl = OpenAIBatchJsonL{
-				CustomID: fmt.Sprintf("embed-"+formter, now, req.BatchJobName, i),
+			jsonl = BatchRequestJSONL{
+				CustomID: fmt.Sprintf("embed-"+formatter, now, req.BatchJobName, i),
 				Endpoint: openai.BatchNewParamsEndpointV1Embeddings,
 			}
 		default:
@@ -522,8 +527,9 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal %d-th request to jsonl: %w", i, err)
 		}
-		buf.Write(data)
-		buf.WriteByte('\n')
+
+		req.ReadWriter.Write(data)
+		req.ReadWriter.Write([]byte{'\n'})
 	}
 
 	var opts []option.RequestOption
@@ -531,7 +537,11 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 		opts = v
 	}
 
-	file, err := cli.File(ctx, buf, fmt.Sprintf("%d-%s", now, req.BatchJobName), "application/jsonl", opts...)
+	if f, ok := req.ReadWriter.(*os.File); ok {
+		f.Seek(0, io.SeekStart)
+	}
+
+	file, err := cli.File(ctx, req.ReadWriter, fmt.Sprintf("%d-%s.jsonl", now, req.BatchJobName), "application/jsonl", opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create jsonl file for batch: %w", err)
 	}
@@ -560,8 +570,9 @@ func (cli *Client) BatchCreate(ctx context.Context, req *llm.BatchRequest) (*llm
 	return &llm.BatchResponse{
 		ID:           batch.ID,
 		OutputFileID: batch.OutputFileID,
+		InputFileID:  batch.InputFileID,
 		Status:       string(batch.Status),
-		IsDone:       isTerminalJobState(batch.Status),
+		IsDone:       IsTerminalJobState(batch.Status),
 		CreatedAt:    time.Unix(batch.CreatedAt, 0),
 		StartAt:      time.Unix(batch.InProgressAt, 0),
 		EndAt:        time.Unix(batch.CompletedAt, 0),
@@ -582,14 +593,22 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 
 	batch, err := cli.OpenAI.Batches.Get(ctx, req.ID, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create batch: %w", err)
+		if e, ok := err.(*openai.Error); ok {
+			return &llm.BatchResponse{
+				HTTPStatusCode: e.StatusCode,
+				HTTPMessage:    e.Message,
+				ID:             req.ID,
+			}, e
+		}
+		return nil, fmt.Errorf("failed to retrive batch: %w", err)
 	}
 
 	resp := &llm.BatchResponse{
 		ID:           batch.ID,
+		InputFileID:  batch.InputFileID,
 		OutputFileID: batch.OutputFileID,
 		Status:       string(batch.Status),
-		IsDone:       isTerminalJobState(batch.Status),
+		IsDone:       IsTerminalJobState(batch.Status),
 		CreatedAt:    time.Unix(batch.CreatedAt, 0),
 		StartAt:      time.Unix(batch.InProgressAt, 0),
 		EndAt:        time.Unix(batch.CompletedAt, 0),
@@ -600,8 +619,16 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 		},
 	}
 
-	if isTerminalJobState(batch.Status) {
+	if !IsTerminalJobState(batch.Status) {
 		return resp, nil
+	}
+
+	if resp.Status != string(openai.BatchStatusCompleted) {
+		batch.OutputFileID = batch.ErrorFileID
+	}
+
+	if batch.OutputFileID == "" {
+		return resp, fmt.Errorf("%w: empty file_id field", ErrFailedToGetOutputFile)
 	}
 
 	opts = nil
@@ -612,7 +639,7 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 	file, err := cli.OpenAI.Files.Content(ctx, batch.OutputFileID, opts...)
 	resp.Raw = file
 	if err != nil {
-		return resp, fmt.Errorf("failed to get output file: %w", err)
+		return resp, fmt.Errorf("%s: %w", ErrFailedToGetOutputFile.Error(), err)
 	}
 
 	if file.StatusCode != http.StatusOK {
@@ -634,10 +661,14 @@ func (cli *Client) BatchRetrieve(ctx context.Context, req *llm.BatchRetrieveRequ
 }
 
 func (cli *Client) BatchCancel(ctx context.Context, req *llm.BatchCancelRequest) error {
-	return llm.ErrNotImplemented
+	_, err := cli.OpenAI.Batches.Cancel(ctx, req.ID)
+	if err != nil {
+		return fmt.Errorf("failed to cancel batch %s: %w", req.ID, err)
+	}
+	return nil
 }
 
-func formater(n int) string {
+func formatter(n int) string {
 	digit := 0
 	for ; n > 0; n /= 10 {
 		digit++
@@ -683,8 +714,8 @@ func toResponseInputParam(msgs []llm.Message) responses.ResponseInputParam {
 	return param
 }
 
-// isTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
-func isTerminalJobState(status openai.BatchStatus) bool {
+// IsTerminalJobState checks if a given job status indicates a terminal state (succeeded, failed, cancelled, or expired).
+func IsTerminalJobState(status openai.BatchStatus) bool {
 	switch status {
 	case openai.BatchStatusCompleted,
 		openai.BatchStatusFailed,

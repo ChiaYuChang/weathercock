@@ -17,6 +17,10 @@ const (
 	ECIOError         = 003
 )
 
+const (
+	ECSuccess = 200
+)
+
 // HTTP 400 - 499: Client errors
 const (
 	ECBadRequest      = http.StatusBadRequest
@@ -36,7 +40,6 @@ const (
 	ECWebpageParsingError = iota + 520
 	ECPressReleaseCollectorError
 	ECValidationError
-	ECNATSJsPublishFailed
 )
 
 const (
@@ -47,26 +50,42 @@ const (
 	ECDatabaseTypeConversionError
 )
 
+const (
+	ECNATSServerError = iota + 560
+	ECNATSConnectionFailed
+	ECNATSJsPublishFailed
+	ECNATSJsPullingFailed
+)
+
+const (
+	ECLLMMaliciousPrompt = iota + 600
+)
+
 type Error struct {
 	InternalStatusCode int      `json:"-"`
 	HttpStatusCode     int      `json:"code"`
 	Message            string   `json:"message"`
 	Details            []string `json:"details,omitempty"`
-	internal           error
+	internal           error    `json:"-"`
 }
 
 var (
-	ErrBadRequest                    = NewWithHTTPStatus(http.StatusBadRequest, ECBadRequest, "bad request")
-	ErrNoContent                     = NewWithHTTPStatus(http.StatusNoContent, ECNoContent, "no content available")
-	ErrValidationFailed              = NewWithHTTPStatus(http.StatusBadRequest, ECValidationError, "validation failed")
-	ErrDBError                       = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseError, "database error")
-	ErrNotFound                      = NewWithHTTPStatus(http.StatusNotFound, ECNoRows, "no record found")
-	ErrDBIntegrityConstrainViolation = NewWithHTTPStatus(http.StatusConflict, ECIntegrityConstrainViolation, "integrity constraint violation")
-	ErrDBTransactionRollback         = NewWithHTTPStatus(http.StatusInternalServerError, ECTransactionRollback, "transaction rollback error")
-	ErrDBTypeConversionError         = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseTypeConversionError, "database type conversion error")
+	Success                           = NewWithHTTPStatus(http.StatusOK, ECSuccess, "OK")
+	ErrInternalServerError            = NewWithHTTPStatus(http.StatusInternalServerError, ECInternalServerError, "internal server error")
+	ErrBadRequest                     = NewWithHTTPStatus(http.StatusBadRequest, ECBadRequest, "bad request")
+	ErrContentContainsMaliciousPrompt = NewWithHTTPStatus(http.StatusBadRequest, ECLLMMaliciousPrompt, "content contains malicious prompt")
+	ErrNoContent                      = NewWithHTTPStatus(http.StatusNoContent, ECNoContent, "no content available")
+	ErrValidationFailed               = NewWithHTTPStatus(http.StatusBadRequest, ECValidationError, "validation failed")
+	ErrDBError                        = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseError, "database error")
+	ErrNotFound                       = NewWithHTTPStatus(http.StatusNotFound, ECNoRows, "no record found")
+	ErrDBIntegrityConstrainViolation  = NewWithHTTPStatus(http.StatusConflict, ECIntegrityConstrainViolation, "integrity constraint violation")
+	ErrDBTransactionRollback          = NewWithHTTPStatus(http.StatusInternalServerError, ECTransactionRollback, "transaction rollback error")
+	ErrDBTypeConversionError          = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseTypeConversionError, "database type conversion error")
+	ErrNATSServerError                = NewWithHTTPStatus(http.StatusInternalServerError, ECNATSServerError, "NATS server error")
+	ErrNATSConnectionFailed           = NewWithHTTPStatus(http.StatusServiceUnavailable, ECNATSConnectionFailed, "NATS is not connected")
 )
 
-func NewWithHTTPStatus(internalSC, httpSC int, msg string, details ...string) *Error {
+func NewWithHTTPStatus(httpSC, internalSC int, msg string, details ...string) *Error {
 	return &Error{
 		InternalStatusCode: internalSC,
 		HttpStatusCode:     httpSC,
@@ -94,8 +113,7 @@ func FromPgError(e *PGErr) *Error {
 		ECDatabaseError,
 		fmt.Sprintf("[%s][%s] %s", e.Code, e.Severity, e.Message),
 		e.Details,
-	)
-
+	).Warp(e)
 }
 
 func (e *Error) Error() string {

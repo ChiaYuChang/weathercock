@@ -114,6 +114,43 @@ func (q *Queries) GetArticleByID(ctx context.Context, id int32) (Article, error)
 	return i, err
 }
 
+const getArticleByIDs = `-- name: GetArticleByIDs :many
+SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
+FROM articles
+WHERE id = ANY($1::integer[])
+`
+
+func (q *Queries) GetArticleByIDs(ctx context.Context, ids []int32) ([]Article, error) {
+	rows, err := q.db.Query(ctx, getArticleByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Article
+	for rows.Next() {
+		var i Article
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Url,
+			&i.Source,
+			&i.Md5,
+			&i.Party,
+			&i.Content,
+			&i.Cuts,
+			&i.PublishedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getArticleByMD5 = `-- name: GetArticleByMD5 :one
 SELECT id, title, url, source, md5, party, content, cuts, published_at, created_at
 FROM articles

@@ -38,5 +38,6 @@ RUN go install golang.org/x/tools/gopls@latest \
     && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 RUN go install github.com/go-task/task/v3/cmd/task@latest
 RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 CMD ["sleep", "infinity"]

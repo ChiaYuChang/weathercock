@@ -38,6 +38,10 @@ const (
 	TaskLog = "task.logs"
 )
 
+const (
+	MessageVersion = "1.0"
+)
+
 var (
 	ErrInvalidEmbedType = errors.New("invalid embed type, must be query or passage")
 	ErrInvalidLogLevel  = errors.New("invalid log level")
@@ -158,13 +162,44 @@ func (l *LogLevel) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type MessagePacket struct {
+	Type   string          `json:"type"`
+	Source string          `json:"source"`
+	Data   json.RawMessage `json:"data"`
+}
+
 // BaseMessage is the base struct for all messages.
 // Timestamp is in Unix format.
 type BaseMessage struct {
+	Version  string    `json:"version"`
 	TaskID   uuid.UUID `json:"task_id"`
 	UserID   int32     `json:"user_id,omitempty"`
 	CacheKey string    `json:"cache_key,omitempty"`
 	EventAt  int64     `json:"event_at"`
+}
+
+func NewBaseMessage() *BaseMessage {
+	return &BaseMessage{Version: MessageVersion, EventAt: time.Now().Unix()}
+}
+
+func (msg *BaseMessage) WithTaskID(taskID uuid.UUID) *BaseMessage {
+	msg.TaskID = taskID
+	return msg
+}
+
+func (msg *BaseMessage) WithUserID(userID int32) *BaseMessage {
+	msg.UserID = userID
+	return msg
+}
+
+func (msg *BaseMessage) WithCacheKey(cacheKey string) *BaseMessage {
+	msg.CacheKey = cacheKey
+	return msg
+}
+
+func (msg *BaseMessage) WithEventAt(t time.Time) *BaseMessage {
+	msg.EventAt = t.Unix()
+	return msg
 }
 
 func (msg BaseMessage) Time() time.Time {

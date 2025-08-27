@@ -113,6 +113,10 @@ RETURNING id;
 SELECT *
 FROM articles
 WHERE id = $1;
+-- name: GetArticleByIDs :many
+SELECT *
+FROM articles
+WHERE id = ANY(sqlc.arg('ids')::integer[]);
 -- name: GetArticleByMD5 :one
 SELECT *
 FROM articles

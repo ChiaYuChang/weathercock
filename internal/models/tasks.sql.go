@@ -9,9 +9,31 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createTask = `-- name: CreateTask :one
+const getUserTask = `-- name: GetUserTask :one
+SELECT id, task_id, source, original_input, status, error_message, created_at, updated_at FROM users.tasks
+WHERE task_id = $1
+`
+
+func (q *Queries) GetUserTask(ctx context.Context, taskID uuid.UUID) (UsersTask, error) {
+	row := q.db.QueryRow(ctx, getUserTask, taskID)
+	var i UsersTask
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Source,
+		&i.OriginalInput,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertUserTask = `-- name: InsertUserTask :one
 INSERT INTO users.tasks (
     source,
     original_input
@@ -22,14 +44,87 @@ INSERT INTO users.tasks (
 RETURNING task_id
 `
 
-type CreateTaskParams struct {
+type InsertUserTaskParams struct {
 	Source        SourceType `db:"source" json:"source"`
 	OriginalInput string     `db:"original_input" json:"original_input"`
 }
 
-func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, createTask, arg.Source, arg.OriginalInput)
+func (q *Queries) InsertUserTask(ctx context.Context, arg InsertUserTaskParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertUserTask, arg.Source, arg.OriginalInput)
 	var task_id uuid.UUID
 	err := row.Scan(&task_id)
 	return task_id, err
+}
+
+const listUserTasks = `-- name: ListUserTasks :many
+SELECT id, task_id, source, original_input, status, error_message, created_at, updated_at FROM users.tasks
+WHERE id > $1
+ORDER BY id DESC
+LIMIT $2::integer
+`
+
+type ListUserTasksParams struct {
+	ID    int32 `db:"id" json:"id"`
+	Limit int32 `db:"limit" json:"limit"`
+}
+
+func (q *Queries) ListUserTasks(ctx context.Context, arg ListUserTasksParams) ([]UsersTask, error) {
+	rows, err := q.db.Query(ctx, listUserTasks, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UsersTask
+	for rows.Next() {
+		var i UsersTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.Source,
+			&i.OriginalInput,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateUserTaskErrMsg = `-- name: UpdateUserTaskErrMsg :exec
+UPDATE users.tasks
+SET error_message = $1, status = 'failed', updated_at = NOW()
+WHERE task_id = $2
+`
+
+type UpdateUserTaskErrMsgParams struct {
+	ErrorMessage pgtype.Text `db:"error_message" json:"error_message"`
+	TaskID       uuid.UUID   `db:"task_id" json:"task_id"`
+}
+
+func (q *Queries) UpdateUserTaskErrMsg(ctx context.Context, arg UpdateUserTaskErrMsgParams) error {
+	_, err := q.db.Exec(ctx, updateUserTaskErrMsg, arg.ErrorMessage, arg.TaskID)
+	return err
+}
+
+const updateUserTaskStatus = `-- name: UpdateUserTaskStatus :exec
+UPDATE users.tasks
+SET status = $2::task_status, updated_at = NOW()
+WHERE task_id = $1
+`
+
+type UpdateUserTaskStatusParams struct {
+	TaskID     uuid.UUID  `db:"task_id" json:"task_id"`
+	TaskStatus TaskStatus `db:"task_status" json:"task_status"`
+}
+
+func (q *Queries) UpdateUserTaskStatus(ctx context.Context, arg UpdateUserTaskStatusParams) error {
+	_, err := q.db.Exec(ctx, updateUserTaskStatus, arg.TaskID, arg.TaskStatus)
+	return err
 }

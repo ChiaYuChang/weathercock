@@ -11,11 +11,11 @@ import (
 )
 
 type Querier interface {
-	CreateTask(ctx context.Context, arg CreateTaskParams) (uuid.UUID, error)
 	DeleteModelByID(ctx context.Context, id int32) error
 	ExtractChunks(ctx context.Context, id int32) ([]ExtractChunksRow, error)
 	ExtractUsersChunks(ctx context.Context, id int32) ([]ExtractUsersChunksRow, error)
 	GetArticleByID(ctx context.Context, id int32) (Article, error)
+	GetArticleByIDs(ctx context.Context, ids []int32) ([]Article, error)
 	GetArticleByMD5(ctx context.Context, md5 string) (Article, error)
 	GetArticleByURL(ctx context.Context, url string) (Article, error)
 	GetArticleWithinTimeInterval(ctx context.Context, arg GetArticleWithinTimeIntervalParams) ([]Article, error)
@@ -30,6 +30,7 @@ type Querier interface {
 	GetKNNUsersEmbeddingsByL2Distance(ctx context.Context, arg GetKNNUsersEmbeddingsByL2DistanceParams) ([]GetKNNUsersEmbeddingsByL2DistanceRow, error)
 	GetModelByID(ctx context.Context, id int32) (GetModelByIDRow, error)
 	GetModelByName(ctx context.Context, name string) (GetModelByNameRow, error)
+	GetUserTask(ctx context.Context, taskID uuid.UUID) (UsersTask, error)
 	GetUsersArticleByID(ctx context.Context, id int32) (UsersArticle, error)
 	GetUsersArticleByMD5(ctx context.Context, md5 string) (UsersArticle, error)
 	GetUsersArticleByTaskID(ctx context.Context, taskID uuid.UUID) (UsersArticle, error)
@@ -41,12 +42,16 @@ type Querier interface {
 	InsertModel(ctx context.Context, name string) (int32, error)
 	InsertTestUserArticle(ctx context.Context, arg InsertTestUserArticleParams) (int32, error)
 	InsertUserEmbedding(ctx context.Context, arg InsertUserEmbeddingParams) (int32, error)
+	InsertUserTask(ctx context.Context, arg InsertUserTaskParams) (uuid.UUID, error)
 	InsertUsersArticle(ctx context.Context, arg InsertUsersArticleParams) (int32, error)
 	InsertUsersChunk(ctx context.Context, arg InsertUsersChunkParams) (int32, error)
 	InsertUsersChunksBatch(ctx context.Context, arg []InsertUsersChunksBatchParams) *InsertUsersChunksBatchBatchResults
 	InsertUsersEmbedding(ctx context.Context, arg InsertUsersEmbeddingParams) (int32, error)
 	InsertUsersEmbeddingBatch(ctx context.Context, arg []InsertUsersEmbeddingBatchParams) *InsertUsersEmbeddingBatchBatchResults
 	ListModels(ctx context.Context, arg ListModelsParams) ([]ListModelsRow, error)
+	ListUserTasks(ctx context.Context, arg ListUserTasksParams) ([]UsersTask, error)
+	UpdateUserTaskErrMsg(ctx context.Context, arg UpdateUserTaskErrMsgParams) error
+	UpdateUserTaskStatus(ctx context.Context, arg UpdateUserTaskStatusParams) error
 }
 
 var _ Querier = (*Queries)(nil)

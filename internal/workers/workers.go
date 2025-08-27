@@ -13,8 +13,15 @@ type Handler interface {
 	// Subject returns the NATS subject the worker will subscribe to.
 	Subject() string
 
-	// ConsumerConfig returns the JetStream consumer configuration for the subscription.
-	ConsumerConfig() *nats.ConsumerConfig
+	// StreamName returns the name of the JetStream stream to bind to.
+	StreamName() string
+
+	// DurableName returns the durable name for the consumer. This is used as the queue group.
+	DurableName() string
+
+	// ConsumerOptions allows for advanced configuration of the consumer.
+	// For most cases, this can return nil.
+	ConsumerOptions() []nats.SubOpt
 
 	// Handle processes a single NATS message. This is where the core business logic resides.
 	// It receives a context that includes tracing and timeout information.

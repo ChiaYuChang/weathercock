@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/signal"
@@ -19,15 +20,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	NATSMaxWaitDuration       = 5 * time.Second
+	NATSMaxFetchRetryInterval = 120
+)
+
 // Runner manages the lifecycle of a worker, handling subscriptions, message fetching,
 // health checks, and graceful shutdown.
 type Runner struct {
-	nc      *nats.Conn
-	js      nats.JetStreamContext
-	logger  zerolog.Logger
-	tracer  trace.Tracer
-	worker  Handler
-	options Options
+	nc                *nats.Conn
+	js                nats.JetStreamContext
+	logger            zerolog.Logger
+	tracer            trace.Tracer
+	worker            Handler
+	options           Options
+	healthCheckServer *http.Server
 }
 
 // NewRunner creates a new Runner instance.
@@ -44,8 +51,10 @@ func NewRunner(nc *nats.Conn, logger zerolog.Logger, tracer trace.Tracer, w Hand
 		tracer: tracer,
 		worker: w,
 		options: Options{
-			Timeout:         30 * time.Second,
-			HealthCheckPort: 8080,
+			Timeout:          30 * time.Second,
+			HealthCheckPort:  8080,
+			HealthCheckHost:  "",
+			ShutdownWaitTime: 5 * time.Second,
 		},
 	}
 
@@ -59,11 +68,13 @@ func NewRunner(nc *nats.Conn, logger zerolog.Logger, tracer trace.Tracer, w Hand
 func (r *Runner) Run(ctx context.Context) error {
 	go r.startHealthCheckServer()
 
-	config := r.worker.ConsumerConfig()
+	opts := []nats.SubOpt{
+		nats.BindStream(r.worker.StreamName()),
+	}
+	opts = append(opts, r.worker.ConsumerOptions()...)
 	sub, err := r.js.PullSubscribe(
 		r.worker.Subject(),
-		config.Durable,
-		nats.BindStream(config.Name))
+		r.worker.DurableName(), opts...)
 
 	if err != nil {
 		e := ec.ErrNATSServerError.Clone().
@@ -78,26 +89,42 @@ func (r *Runner) Run(ctx context.Context) error {
 	start := time.Now()
 	r.logger.Info().
 		Str("subject", r.worker.Subject()).
-		Str("durable", config.Durable).
-		Str("name", config.Name).
+		Str("durable_name", r.worker.DurableName()).
+		Str("stream_name", r.worker.StreamName()).
 		Msg("runner started, waiting for messages...")
 
 	retry := 0
 	for {
 		select {
 		case <-ctx.Done():
-			r.logger.Info().
-				Dur("uptime", time.Since(start)).
-				Msg("runner shutting down gracefully...")
-			sub.Unsubscribe()
+			if err := sub.Unsubscribe(); err != nil {
+				r.logger.Error().
+					Err(err).
+					Str("subject", sub.Subject).
+					Msg("failed to unsubscribed subject")
+			}
+
+			sCtx, sCancel := context.WithTimeout(context.Background(), r.options.ShutdownWaitTime)
+			defer sCancel()
+			if r.healthCheckServer != nil {
+				if err := r.healthCheckServer.Shutdown(sCtx); err != nil {
+					r.logger.Error().Err(err).
+						Dur("uptime", time.Since(start)).
+						Msg("health check server forced to shutdown")
+				} else {
+					r.logger.Info().
+						Dur("uptime", time.Since(start)).
+						Msg("health check server exit gracefully")
+				}
+			}
 			return ctx.Err()
 		default:
-			msgs, err := sub.Fetch(1, nats.MaxWait(5*time.Second))
+			msgs, err := sub.Fetch(1, nats.MaxWait(NATSMaxWaitDuration))
 			if err != nil {
 				if err == nats.ErrTimeout {
 					continue
 				}
-				wait := max(1<<retry, 120)
+				wait := max(1<<retry, NATSMaxFetchRetryInterval)
 				r.logger.Error().
 					Err(err).
 					Int("retry", retry).
@@ -107,6 +134,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				retry++
 				continue
 			}
+			retry = 0
 			for _, msg := range msgs {
 				r.processMessage(ctx, msg)
 			}
@@ -116,29 +144,34 @@ func (r *Runner) Run(ctx context.Context) error {
 
 // processMessage handles the full lifecycle of a single message, including tracing and ack/nak.
 func (r *Runner) processMessage(ctx context.Context, msg *nats.Msg) {
-	pCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(msg.Header))
-	sCtx, sCancel := r.tracer.Start(pCtx, msg.Subject, trace.WithAttributes(
-		attribute.String("nats.subject", msg.Subject),
-	))
-	defer sCancel.End()
+	pCtx := otel.GetTextMapPropagator().
+		Extract(ctx, propagation.HeaderCarrier(msg.Header))
+
+	sCtx, sSpan := r.tracer.Start(pCtx, msg.Subject,
+		trace.WithAttributes(
+			attribute.String("nats.subject", msg.Subject),
+		))
+	defer sSpan.End()
 
 	tCtx, tCancel := context.WithTimeout(sCtx, r.options.Timeout)
 	defer tCancel()
 
 	if err := r.worker.Handle(tCtx, msg); err != nil {
-		sCancel.RecordError(err)
-		sCancel.SetAttributes(attribute.Bool("success", false))
+		sSpan.RecordError(err)
+		sSpan.SetAttributes(attribute.Bool("success", false))
 
-		r.logger.Error().Err(err).Msg("worker handler failed, sending NAK")
+		r.logger.Error().Err(err).
+			Msg("worker handler failed, sending NAK")
 		if nakErr := msg.NakWithDelay(10 * time.Second); nakErr != nil {
-			r.logger.Error().Err(nakErr).Msg("failed to send NAK")
+			r.logger.Error().Err(nakErr).
+				Msg("failed to send NAK")
 		}
 		return
 	}
 
 	if ackErr := msg.Ack(); ackErr != nil {
-		sCancel.RecordError(ackErr)
-		sCancel.SetAttributes(
+		sSpan.RecordError(ackErr)
+		sSpan.SetAttributes(
 			attribute.Bool("success", false),
 			attribute.String("ack_error", ackErr.Error()))
 
@@ -146,7 +179,7 @@ func (r *Runner) processMessage(ctx context.Context, msg *nats.Msg) {
 		return
 	}
 
-	sCancel.SetAttributes(attribute.Bool("success", true))
+	sSpan.SetAttributes(attribute.Bool("success", true))
 	r.logger.Info().Msg("message processed and ACKed successfully")
 }
 
@@ -176,10 +209,13 @@ func (r *Runner) startHealthCheckServer() {
 	}
 
 	addr := fmt.Sprintf("%s:%d", r.options.HealthCheckHost, r.options.HealthCheckPort)
+	r.healthCheckServer = &http.Server{Addr: addr, Handler: mux}
+
 	r.logger.Info().
 		Int("health_check_port", r.options.HealthCheckPort).
 		Msg("health check server starting")
-	if err := http.ListenAndServe(addr, mux); err != nil {
+
+	if err := r.healthCheckServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		r.logger.Error().Err(err).Msg("health check server failed")
 	}
 }
@@ -201,4 +237,11 @@ func (r *Runner) defaultReadyCheck(w http.ResponseWriter, req *http.Request) {
 
 	w.WriteHeader(ec.Success.HttpStatusCode)
 	_ = ec.Success.MarshalAndWriteTo(w)
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

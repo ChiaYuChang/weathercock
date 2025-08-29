@@ -168,7 +168,7 @@ func (c NATSConfig) String() string {
 
 // Validate checks the NATSConfig for required fields and conditions.
 func (c NATSConfig) Validate() error {
-	err := Validator().Struct(c)
+	err := Validator.Struct(c)
 	if err != nil {
 		return fmt.Errorf("NATS config validation failed: %w", err)
 	}

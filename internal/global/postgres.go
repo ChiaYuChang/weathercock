@@ -29,7 +29,13 @@ type PostgresConfig struct {
 }
 
 func LoadPostgresConfig() *PostgresConfig {
-	return &PostgresConfig{
+	viper.SetDefault("POSTGRES_HOST", "localhost")
+	viper.SetDefault("POSTGRES_PORT", 5432)
+	viper.SetDefault("POSTGRES_USER", "postgres")
+	viper.SetDefault("POSTGRES_APP_DB", "db")
+	viper.SetDefault("POSTGRES_SSLMODE", false)
+
+	cfx := &PostgresConfig{
 		Host:         viper.GetString("POSTGRES_HOST"),
 		Port:         viper.GetInt("POSTGRES_PORT"),
 		Username:     viper.GetString("POSTGRES_USER"),
@@ -38,6 +44,12 @@ func LoadPostgresConfig() *PostgresConfig {
 		Database:     viper.GetString("POSTGRES_APP_DB"),
 		SSLMode:      viper.GetBool("POSTGRES_SSLMODE"),
 	}
+
+	if err := cfx.ReadPasswordFile(); err != nil {
+		Logger.Warn().Err(err).Msg("failed to read password file")
+		return nil
+	}
+	return cfx
 }
 
 // MarshalJSON is a custom JSON marshaller that masks the password field.
@@ -82,7 +94,14 @@ func (c *PostgresConfig) ReadPasswordFile() error {
 		return fmt.Errorf("failed to read password file %s: %w", c.PasswordFile, err)
 	}
 
-	c.Password = strings.TrimSpace(string(data))
+	password := strings.TrimSpace(string(data))
+	if c.Password != "" {
+		Logger.Warn().
+			Str("password", utils.Mask(c.Password)).
+			Str("password_from_file", utils.Mask(password)).
+			Msg("password provided in config will be replaced by password from file")
+	}
+	c.Password = password
 	return nil
 }
 
@@ -131,22 +150,10 @@ func (c PostgresConfig) String() string {
 }
 
 // Validate checks the PostgresConfig for required fields and conditions.
+// It is recommended to call ReadPasswordFile() before calling this method.
 func (c *PostgresConfig) Validate() error {
-	v := Validator()
-
-	if err := v.Struct(c); err != nil {
+	if err := Validator.Struct(c); err != nil {
 		return fmt.Errorf("invalid Postgres configuration: %w", err)
-	}
-
-	if c.Password == "" {
-		Logger.Warn().
-			Str("password_file", c.PasswordFile).
-			Msg("password is empty, trying to read from password file")
-		if err := c.ReadPasswordFile(); err != nil {
-			return err
-		}
-		Logger.Warn().
-			Msg("call .ReadPasswordFile() before Validate() to remove this warning")
 	}
 
 	if len(c.Password) == 0 {
@@ -157,6 +164,12 @@ func (c *PostgresConfig) Validate() error {
 		Logger.Warn().
 			Int("password_length", len(c.Password)).
 			Msg("password is less than 8 characters, consider using a stronger password")
+	}
+
+	if !c.SSLMode {
+		Logger.Warn().
+			Bool("sslmode", c.SSLMode).
+			Msg("ssl mode is disabled, consider enabling it for production environments or if exposing to outer network")
 	}
 
 	return nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"time"
 
@@ -37,15 +38,11 @@ var TestArticle = Article{
 	Keywords:    []string{"高齡換照", "交通部", "重大車禍", "陳雪生", "陳超明"},
 }
 
-func NewRouter(store storage.Storage) *http.ServeMux {
+func NewRouter(store storage.Storage, pub *publishers.Publisher, tmpl *template.Template) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	pub := &publishers.Publisher{
-		Conn: global.NATS().Conn,
-		Js:   global.NATS().Js,
-	}
 	repo := api.NewRepo(store, pub, global.Logger, nil)
-	taskEp := repo.UserTask(global.Validator())
+	taskEp := repo.UserTask(global.Validator)
 
 	// file server
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
@@ -92,7 +89,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 		// Validate the task_id format
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := global.Validator().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+		if err := global.Validator.VarCtx(ctx, taskID, "uuid4,required"); err != nil {
 			global.Logger.Error().
 				Err(err).
 				Str("path", r.URL.Path).
@@ -108,7 +105,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 
 		// Simulate successful fetch
 		buff := bytes.NewBuffer([]byte{})
-		_ = global.Templates().ExecuteTemplate(buff, "ui-content", TestArticle)
+		_ = tmpl.ExecuteTemplate(buff, "ui-content", TestArticle)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(buff.Bytes())
@@ -119,7 +116,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := global.Validator().VarCtx(ctx, taskID, "uuid4,required"); err != nil {
+		if err := global.Validator.VarCtx(ctx, taskID, "uuid4,required"); err != nil {
 			global.Logger.Error().
 				Err(err).
 				Str("path", r.URL.Path).

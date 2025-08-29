@@ -25,7 +25,7 @@ func (tmpl TemplateConfig) String() string {
 }
 
 func (tmpl TemplateConfig) Validate() error {
-	return Validator().Struct(tmpl)
+	return Validator.Struct(tmpl)
 }
 
 func TemplatesConfig() *TemplateConfig {

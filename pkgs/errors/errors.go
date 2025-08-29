@@ -72,6 +72,7 @@ type Error struct {
 var (
 	Success                           = NewWithHTTPStatus(http.StatusOK, ECSuccess, "OK")
 	ErrInternalServerError            = NewWithHTTPStatus(http.StatusInternalServerError, ECInternalServerError, "internal server error")
+	ErrInvalidConfig                  = NewWithHTTPStatus(http.StatusInternalServerError, ECValidationError, "invalid configuration")
 	ErrBadRequest                     = NewWithHTTPStatus(http.StatusBadRequest, ECBadRequest, "bad request")
 	ErrContentContainsMaliciousPrompt = NewWithHTTPStatus(http.StatusBadRequest, ECLLMMaliciousPrompt, "content contains malicious prompt")
 	ErrNoContent                      = NewWithHTTPStatus(http.StatusNoContent, ECNoContent, "no content available")

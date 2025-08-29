@@ -1,3 +1,8 @@
+## Workers
+- `Web scraper worker`: Responsible for scraping the URL, storing the article and chunks, and publishing keyword extraction tasks.
+- `Keyword extraction worker`: Responsible for extracting keywords from the scraped article content (from Valkey) and storing them.
+- `Log worker`: Responsible for subscribing to log messages and writing them to a log file.
+
 ### 1. 使用者輸入 URL（Frontend ↔ Backend）
 
 ```

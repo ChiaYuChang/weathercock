@@ -15,6 +15,10 @@ tasks:
     desc: Build the Docker image for development
     cmds:
       - docker build -f Dockerfile.dev --build-arg USERNAME=${DEV_USERNAME} --build-arg USER_UID=1000 --build-arg USER_GID=1000 -t weathercock-dev:1.0 .
+  docker-exec-dev-env:
+    desc: Exec dev env
+    cmds:
+      - docker exec -it -u ${DEV_USERNAME} weathercock-dev-app bash
   docker-compose-up:
     desc: Start the Docker containers for development (including NUI and pgAdmin)
     cmds:

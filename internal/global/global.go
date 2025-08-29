@@ -1,96 +1,37 @@
-// Package global provides centralized initialization and configuration for core services.
 package global
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
+	ec "github.com/ChiaYuChang/weathercock/pkgs/errors"
 	"github.com/ChiaYuChang/weathercock/pkgs/utils"
 	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// Singleton is a generic type that holds a single instance of a type T.
-type Singleton[T any] struct {
-	instance *T
-	once     sync.Once
-	errs     []error
-}
-
-// NewSingleton creates a new instance of Singleton.
-func NewSingleton[T any]() *Singleton[T] {
-	return &Singleton[T]{
-		instance: new(T),
-		once:     sync.Once{},
-		errs:     nil,
-	}
-}
-
-// Errors returns a slice of errors encountered during initialization.
-func (s *Singleton[T]) Errors() []error {
-	return s.errs
-}
-
-func (s *Singleton[T]) Panic(msg string) {
-	sb := strings.Builder{}
-	for _, err := range templates.errs {
-		sb.WriteString(fmt.Sprintf(" - %s\n", err))
-	}
-	panic(fmt.Errorf("%s:\n%s", msg, sb.String()))
-}
-
-func (s *Singleton[T]) CleanUp() {
-	s.instance = nil
-	s.errs = nil
-}
-
-func (s *Singleton[T]) Reset() {
-	s.once = sync.Once{}
-	s.CleanUp()
-}
 
 // Logger is the global zerolog logger instance.
 var Logger zerolog.Logger
 
-var templates = NewSingleton[template.Template]()
-
-// Templates returns the singleton instance of parsed go templates.
-func Templates() *template.Template {
-	templates.once.Do(func() {
-		tmpl, err := TemplateRepo(
-			TemplateFuncMap(),
-			Config().Templates.Path(),
-		)
-		if err != nil {
-			Logger.Error().Err(err).Msg("Failed to parse templates")
-			templates.errs = append(templates.errs, fmt.Errorf("failed to parse templates: %w", err))
-		}
-		Logger.Info().
-			Str("dir", Config().Templates.Dir).
-			Str("file", Config().Templates.File).
-			Msg("Parsed templates successfully")
-		templates.instance = tmpl
-	})
-
-	if len(templates.errs) > 0 {
-		templates.Panic("template parsing errors")
-	}
-	return templates.instance
-}
+// Validator is the global validator instance.
+var Validator *validator.Validate
 
 // mode indicates the current running mode (e.g., "dev", "prod").
 var mode string
+
+var Cache = sync.Map{}
 
 // SetMode sets the current running mode (e.g., "dev", "prod").
 func SetMode(m string) {
@@ -102,262 +43,191 @@ func Mode() string {
 	return utils.DefaultIfZero(mode, "dev")
 }
 
-// natssrv is a singleton for the NATS connection.
-var natssrv = NewSingleton[struct {
-	Conn *nats.Conn
-	Js   nats.JetStreamContext
-}]()
+// InitPostgres initializes the Postgres connection pool and returns it.
+func InitPostgres(ctx context.Context, cfg PostgresConfig) (*pgxpool.Pool, error) {
+	pCtx, pCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer pCancel()
 
-// NATS returns the singleton instance of the NATS connection.
-func NATS() *struct {
-	Conn *nats.Conn
-	Js   nats.JetStreamContext
-} {
-	natssrv.once.Do(func() {
-		if Config().NATS == nil {
-			natssrv.errs = append(natssrv.errs, errors.New("NATS configuration is nil"))
-			Logger.Error().Msg("NATS configuration is nil, call LoadConfigs() first")
-			return
-		}
-
-		if Config().NATS.JetStream {
-			conn, js, err := Config().NATS.ConnectJetStream()
-			if err != nil {
-				natssrv.errs = append(natssrv.errs,
-					fmt.Errorf("failed to connect to NATS JetStream: %w", err))
-				Logger.Error().
-					Err(natssrv.errs[len(natssrv.errs)-1]).
-					Msg("Failed to connect to NATS JetStream")
-				return
-			}
-			natssrv.instance = &struct {
-				Conn *nats.Conn
-				Js   nats.JetStreamContext
-			}{Conn: conn, Js: js}
-			Logger.Info().Msg("Connected to NATS JetStream")
-		} else {
-			conn, err := Config().NATS.Connect()
-			if err != nil {
-				natssrv.errs = append(natssrv.errs,
-					fmt.Errorf("failed to connect to NATS server: %w", err))
-				Logger.Error().
-					Err(natssrv.errs[len(natssrv.errs)-1]).
-					Msg("Failed to connect to NATS server")
-				return
-			}
-			natssrv.instance = &struct {
-				Conn *nats.Conn
-				Js   nats.JetStreamContext
-			}{Conn: conn}
-			Logger.Info().Msg("Connected to NATS server (core NATS)")
-		}
-
-		// Common NATS connection checks (ping, etc.)
-		if natssrv.instance.Conn == nil {
-			natssrv.errs = append(natssrv.errs,
-				fmt.Errorf("NATS connection is nil"))
-			Logger.Error().
-				Err(natssrv.errs[len(natssrv.errs)-1]).
-				Msg("NATS connection is nil")
-			return
-		}
-
-		for retry := 0; natssrv.instance.Conn.Status() != nats.CONNECTED && retry < 5; retry++ {
-			wt := 5 * (1 << retry) * time.Second
-			Logger.Warn().
-				Int("retry", retry).
-				Dur("wait_time", wt).
-				Msg("Waiting for NATS connection...")
-			time.Sleep(wt)
-		}
-
-		if natssrv.instance.Conn.Status() != nats.CONNECTED {
-			natssrv.errs = append(natssrv.errs,
-				fmt.Errorf("failed to connect to NATS server after 5 attempts"))
-			Logger.Error().
-				Err(natssrv.errs[len(natssrv.errs)-1]).
-				Msg("Failed to connect to NATS server after 5 attempts")
-			return
-		}
-		Logger.Info().Msg("Successfully pinged NATS server")
-	})
-
-	if len(natssrv.errs) > 0 {
-		natssrv.Panic("NATS connection errors")
-	}
-	return natssrv.instance
-}
-
-// pool is a singleton for the Postgres connection pool.
-var pool = NewSingleton[pgxpool.Pool]()
-
-// PostgresPool returns the singleton instance of the Postgres connection pool.
-func PostgresPool() *pgxpool.Pool {
-	pool.once.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		p, err := Config().Postgres.Pool(ctx)
-		if err != nil {
-			pool.errs = append(pool.errs,
-				fmt.Errorf("failed to create Postgres connection pool: %w", err))
-			Logger.Error().
-				Err(pool.errs[len(pool.errs)-1]).
-				Msg("Failed to create Postgres connection pool")
-			return
-		}
-
-		if p == nil {
-			pool.errs = append(pool.errs,
-				fmt.Errorf("postgres connection pool is nil"))
-			return
-		}
-		Logger.Info().
-			Str("host", Config().Postgres.Host).
-			Int("port", Config().Postgres.Port).
-			Str("database", Config().Postgres.Database).
-			Str("username", Config().Postgres.Username).
-			Str("password", utils.Mask(Config().Postgres.Password)).
-			Bool("sslmode", Config().Postgres.SSLMode).
-			Msg("Connected to Postgres DB")
-
-		for retry := 0; p.Ping(ctx) != nil && retry < 5; retry++ {
-			wt := 5 * (1 << retry) * time.Second
-			Logger.Warn().
-				Dur("wait_time", wt).
-				Msg("Waiting for Postgres connection...")
-			time.Sleep(wt)
-		}
-
-		if err := p.Ping(ctx); err != nil {
-			pool.errs = append(pool.errs,
-				fmt.Errorf("failed to ping to Postgres: %w", err))
-		}
-		pool.instance = p
-	})
-
-	if len(pool.errs) > 0 {
-		pool.Panic("Postgres connection pool errors")
+	if err := cfg.Validate(); err != nil {
+		return nil, ec.ErrInvalidConfig.Clone().Warp(err).
+			WithMessage("invalid postgres config")
 	}
 
-	return pool.instance
-}
-
-// configuration holds the application configuration.
-type configuration struct {
-	NATS      *NATSConfig
-	Postgres  *PostgresConfig
-	Templates *TemplateConfig
-}
-
-var config = NewSingleton[configuration]()
-
-// Config returns the singleton instance of the configuration.
-// It reads NATS, Postgres, and Template configurations sequentially.
-func Config() *configuration {
-	config.once.Do(func() {
-		c := &configuration{}
-		// Initialize NATS configuration
-		c.NATS = LoadNATSConfig()
-		if err := c.NATS.Validate(); err != nil {
-			config.errs = append(config.errs,
-				fmt.Errorf("NATS configuration validation failed: %w", err))
-			Logger.Error().
-				Err(config.errs[len(config.errs)-1]).
-				Msg("NATS configuration validation failed")
-		} else {
-			Logger.Info().Msg("NATS configuration loaded successfully")
-		}
-
-		// Initialize Postgres configuration
-		c.Postgres = LoadPostgresConfig()
-		if err := c.Postgres.ReadPasswordFile(); err != nil {
-			config.errs = append(config.errs, err)
-			Logger.Error().
-				Err(config.errs[len(config.errs)-1]).
-				Msg("Failed to read Postgres password file")
-		}
-
-		if err := c.Postgres.Validate(); err != nil {
-			config.errs = append(config.errs, err)
-			Logger.Error().
-				Err(config.errs[len(config.errs)-1]).
-				Msg("Postgres configuration validation failed")
-		} else {
-			Logger.Info().Msg("Postgres configuration loaded successfully")
-		}
-
-		// Initialize Template configuration
-		c.Templates = TemplatesConfig()
-		if err := c.Templates.Validate(); err != nil {
-			config.errs = append(config.errs, err)
-			Logger.Error().
-				Err(config.errs[len(config.errs)-1]).
-				Msg("Template configuration validation failed")
-		} else {
-			Logger.Info().Msg("Template configuration loaded successfully")
-		}
-		config.instance = c
-	})
-
-	if len(config.errs) > 0 {
-		config.Panic("configuration errors")
+	p, err := cfg.Pool(pCtx)
+	if err != nil {
+		return nil, ec.ErrDBError.Clone().
+			WithMessage("failed to create Postgres connection pool").
+			Warp(err)
 	}
-	return config.instance
+
+	if p == nil {
+		return nil, ec.ErrDBError.Clone().
+			WithMessage("failed to create Postgres connection pool").
+			WithDetails("postgres connection pool is nil")
+	}
+
+	for retry := 0; p.Ping(pCtx) != nil && retry < 5; retry++ {
+		wt := 5 * (1 << retry) * time.Second
+		Logger.Warn().
+			Int("retry", retry).
+			Dur("wait_time", wt).
+			Msg("Waiting for Postgres connection...")
+		time.Sleep(wt)
+	}
+
+	if err := p.Ping(pCtx); err != nil {
+		return nil, fmt.Errorf("failed to ping to Postgres: %w", err)
+	}
+
+	Logger.Info().
+		Str("host", cfg.Host).
+		Int("port", cfg.Port).
+		Str("database", cfg.Database).
+		Str("username", cfg.Username).
+		Str("password", utils.Mask(cfg.Password)).
+		Bool("sslmode", cfg.SSLMode).
+		Msg("connected to Postgres DB")
+	return p, nil
 }
 
-// Cache is a global concurrent map for caching arbitrary data.
-var Cache = sync.Map{}
+// InitNATS initializes the NATS connection and returns it.
+func InitNATS(cfg NATSConfig) (*nats.Conn, nats.JetStreamContext, error) {
+	var conn *nats.Conn
+	var js nats.JetStreamContext
+	var err error
 
-// Validate singleton instance
-var validate = NewSingleton[validator.Validate]()
+	if cfg.JetStream {
+		conn, js, err = cfg.ConnectJetStream()
+	} else {
+		conn, err = cfg.Connect()
+	}
 
-// Validate returns the singleton instance of the validator.
-func Validator() *validator.Validate {
-	validate.once.Do(func() {
-		validate.instance = validator.New()
+	if err != nil {
+		return nil, nil, ec.ErrNATSConnectionFailed.Clone().
+			WithMessage("failed to connect to NATS").
+			Warp(err)
+	}
+
+	// Common NATS connection checks (ping, etc.)
+	for retry := 0; conn.Status() != nats.CONNECTED && retry < 5; retry++ {
+		wt := 5 * (1 << retry) * time.Second
+		Logger.Warn().
+			Int("retry", retry).
+			Dur("wait_time", wt).
+			Msg("Waiting for NATS connection...")
+		time.Sleep(wt)
+	}
+
+	if conn.Status() != nats.CONNECTED {
+		return nil, nil, ec.ErrNATSServerError.Clone().
+			WithMessage("failed to connect to NATS").
+			WithDetails("failed to connect to NATS server after 5 attempts")
+	}
+	Logger.Info().Msg("successfully connected to NATS server")
+	return conn, js, nil
+}
+
+// InitTemplates initializes and returns the HTML templates.
+func InitTemplates(cfg TemplateConfig) (*template.Template, error) {
+	tmpl, err := TemplateRepo(
+		TemplateFuncMap(),
+		cfg.Path(),
+	)
+	if err != nil {
+		return nil, ec.ErrInternalServerError.Clone().
+			WithMessage("failed to parse templates").
+			Warp(err)
+	}
+	Logger.Info().
+		Str("dir", cfg.Dir).
+		Str("file", cfg.File).
+		Msg("Parsed templates successfully")
+	return tmpl, nil
+}
+
+// InitValidator initializes the global validator.
+func InitValidator() {
+	if Validator == nil {
+		Validator = validator.New()
 		Logger.Info().Msg("Validator initialized")
 		// TODO add self defined validator here
+	}
+}
+
+// InitOTelProvider initializes the OpenTelemetry TracerProvider and returns the tracer and shutdown function.
+func InitOTelProvider(cfg OtelConfig) (trace.Tracer, func(context.Context) error, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tp, err := InitTraceProvider(cfg.CollectorEndpoint, ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize OpenTelemetry trace provider: %w", err)
+	}
+
+	tracer := otel.Tracer(cfg.ServiceName)
+	Logger.Info().
+		Str("service_name", cfg.ServiceName).
+		Msg("OpenTelemetry TracerProvider initialized")
+	return tracer, tp.Shutdown, nil
+}
+
+// InitValkey initializes and returns the Valkey client.
+func InitValkey(ctx context.Context, cfg ValkeyConfig) (*redis.Client, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Password: cfg.Password,
+		DB:       cfg.DB,
 	})
 
-	if len(validate.errs) > 0 {
-		validate.Panic("validator errors")
+	pCtx, pCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer pCancel()
+
+	_, err := client.Ping(pCtx).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Valkey: %w", err)
 	}
-	return validate.instance
+
+	Logger.Info().Msg("Connected to Valkey")
+	return client, nil
 }
 
-var Tracer trace.Tracer
+// --- Configuration Loading ---
 
-// ReadDotEnvFile reads a dotfile configuration using Viper.
-func ReadDotEnvFile(fname, ftype string, fpath []string) error {
-	viper.SetConfigName(fname)
-	viper.SetConfigType(ftype)
-	for _, p := range fpath {
-		viper.AddConfigPath(p)
+// LoadConfig loads configuration from file into the provided cfg struct.
+func LoadConfig(r io.Reader, configType string, cfg any) error {
+	if r == nil {
+		return ec.ErrInternalServerError.Clone().
+			WithMessage("service config reader is nil")
 	}
-	return viper.ReadInConfig()
-}
 
-// LoadConfigs loads configuration from file and sets up the logger and mode.
-func LoadConfigs(fname, ftype string, fpath []string) error {
-	if err := ReadDotEnvFile(fname, ftype, fpath); err != nil {
-		Logger.Error().Err(err).Msg("Failed to read configuration file")
-		return fmt.Errorf("failed to read configuration file: %w", err)
+	v := viper.New()
+	v.SetDefault("mode", "dev")
+	v.SetConfigType(configType)
+	if err := v.ReadConfig(r); err != nil {
+		return ec.ErrInternalServerError.Clone().
+			Warp(err).
+			WithMessage("failed to read service config")
 	}
-	SetMode(utils.DefaultIfZero(viper.GetString("MODE"), "dev"))
-	Logger = InitBaseLogger()
+
+	if err := v.Unmarshal(cfg); err != nil {
+		return ec.ErrInternalServerError.Clone().
+			Warp(err).
+			WithMessage("failed to unmarshal service config")
+	}
+
+	SetMode(v.GetString("mode"))
 	return nil
 }
 
 // InitBaseLogger initializes the base logger for the application.
-func InitBaseLogger() zerolog.Logger {
+func InitBaseLogger(mode string) zerolog.Logger {
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 
-	mode = utils.DefaultIfZero(viper.GetString("MODE"), "dev")
-	logger = logger.Level(utils.IfElse(
-		mode == "dev",
-		zerolog.DebugLevel,
-		zerolog.InfoLevel))
+	logLevel := zerolog.InfoLevel
+	if mode == "dev" {
+		logLevel = zerolog.DebugLevel
+	}
+	logger = logger.Level(logLevel)
 
 	logger.Info().
 		Str("mode", mode).
@@ -366,36 +236,43 @@ func InitBaseLogger() zerolog.Logger {
 	return logger
 }
 
-func CleanUp() {
-	// Clean up resources
-	Cache.Range(func(key, value any) bool {
-		Cache.Delete(key)
-		return true
-	})
-	Cache = sync.Map{}
-
-	defer pool.CleanUp()
-	if pool.instance != nil {
-		pool.instance.Close()
-		Logger.Info().Msg("Postgres connection pool closed")
+// InitLogFile opens or creates a log file.
+func InitLogFile(fname string) (*os.File, error) {
+	f, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open/create log file %s: %w", fname, err)
 	}
-
-	defer natssrv.CleanUp()
-	if natssrv.instance != nil {
-		natssrv.instance.Conn.Close()
-		Logger.Info().Msg("NATS connection closed")
-	}
-
-	defer validate.CleanUp()
-	defer templates.CleanUp()
-	defer config.CleanUp()
+	return f, nil
 }
 
-func Reset() {
-	Logger.Warn().Msg("Resetting global state")
-	pool.Reset()
-	natssrv.Reset()
-	validate.Reset()
-	templates.Reset()
-	config.Reset()
+// NewLogger creates a new logger instance with the given configuration.
+func NewLogger(w io.Writer, cfg ZeroLogConfig) (zerolog.Logger, error) {
+	if cfg.GlobalLevel < -1 || cfg.GlobalLevel > 7 {
+		return zerolog.Nop(), ec.ErrInvalidConfig.Clone().
+			WithMessage("invalid global log level, see zerolog docs for help").
+			WithDetails(fmt.Sprintf("global log level: %d (should be between -1 and 7)", cfg.GlobalLevel))
+	}
+	zerolog.SetGlobalLevel(zerolog.Level(cfg.GlobalLevel))
+
+	var writer io.Writer = w
+	if cfg.Console {
+		writer = zerolog.MultiLevelWriter(w, zerolog.ConsoleWriter{Out: os.Stderr})
+	}
+
+	logger := zerolog.New(writer)
+	if cfg.IncludeTimestamp {
+		logger = logger.With().Timestamp().Logger()
+	}
+
+	if cfg.UseUnixTimestamp {
+		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	}
+
+	logger.Info().
+		Str("global_level", zerolog.GlobalLevel().String()).
+		Bool("console", cfg.Console).
+		Bool("include_timestamp", cfg.IncludeTimestamp).
+		Msg("Logger service initialized successfully.")
+
+	return logger, nil
 }

@@ -273,17 +273,34 @@ func (cli *Client) generateRequest(ctx context.Context, req *llm.GenerateRequest
 		opts = v
 	}
 
-	resp, err := cli.OpenAI.Responses.New(
-		ctx,
-		responses.ResponseNewParams{
-			Model: modelName,
-			Input: responses.ResponseNewParamsInputUnion{
-				OfInputItemList: toResponseInputParam(req.Messages),
-			},
+	params := responses.ResponseNewParams{
+		Model: modelName,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: toResponseInputParam(req.Messages),
 		},
-		opts...,
-	)
+	}
+	if req.Schema != nil {
+		bs, err := json.Marshal(req.Schema.S)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal schema: %w", err)
+		}
 
+		var sc map[string]any
+		if err := json.Unmarshal(bs, &sc); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
+		}
+		params.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+			OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{
+				Name:        req.Schema.Name,
+				Description: openai.String(req.Schema.Description),
+				Schema:      sc,
+				Strict:      openai.Bool(req.Schema.Strict),
+				Type:        "json_schema",
+			},
+		}
+	}
+
+	resp, err := cli.OpenAI.Responses.New(ctx, params, opts...)
 	if err != nil {
 		if e, ok := err.(*openai.Error); ok {
 			return nil, fmt.Errorf("code: %s (%d), type: %s, msg: %s",
@@ -327,14 +344,23 @@ func (cli *Client) generateChatCompletions(ctx context.Context, req *llm.Generat
 		opts = v
 	}
 
-	resp, err := cli.OpenAI.Chat.Completions.New(
-		ctx,
-		openai.ChatCompletionNewParams{
-			Messages: messages,
-			Model:    modelName,
-		},
-		opts...,
-	)
+	params := openai.ChatCompletionNewParams{
+		Messages: messages,
+		Model:    modelName,
+	}
+	if req.Schema != nil {
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name:        req.Schema.Name,
+					Strict:      openai.Bool(req.Schema.Strict),
+					Description: openai.String(req.Schema.Description),
+					Schema:      req.Schema.S,
+				},
+			},
+		}
+	}
+	resp, err := cli.OpenAI.Chat.Completions.New(ctx, params, opts...)
 
 	if err != nil {
 		if e, ok := err.(*openai.Error); ok {

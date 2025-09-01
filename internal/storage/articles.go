@@ -17,13 +17,11 @@ import (
 var MD5PublishedAtFormat = time.DateOnly
 
 func (s Storage) UserArticles() UserArticles {
-	return UserArticles{
-		db: s.Queries,
-	}
+	return UserArticles{s}
 }
 
 type UserArticles struct {
-	db models.Querier
+	Storage
 }
 
 func MD5(title, url string, publishAt time.Time) string {
@@ -37,9 +35,15 @@ func MD5(title, url string, publishAt time.Time) string {
 
 // Insert adds a new user article to the database and returns its ID.
 func (s UserArticles) Insert(ctx context.Context, taskID uuid.UUID, title,
-	source, content string, cuts []int32, publishedAt time.Time) (int32, error) {
-	md5 := MD5(title, source, publishedAt)
+	source, content string, cuts []int32, publishedAt time.Time,
+	fn func(ctx context.Context, tID uuid.UUID, aID int32) error) (int32, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return 0, handlePgxErr(err)
+	}
+	defer tx.Rollback(ctx)
 
+	md5 := MD5(title, source, publishedAt)
 	tsz, err := utils.TimeTo.PGTimestamptz(publishedAt)
 	if err != nil {
 		return 0, errors.ErrDBTypeConversionError.Clone().
@@ -48,54 +52,70 @@ func (s UserArticles) Insert(ctx context.Context, taskID uuid.UUID, title,
 			Warp(err)
 	}
 
-	aid, err := s.db.InsertUsersArticle(ctx, models.InsertUsersArticleParams{
-		TaskID:      taskID,
-		Title:       title,
-		Source:      source,
-		Md5:         md5,
-		Content:     content,
-		Cuts:        cuts,
-		PublishedAt: tsz,
-	})
-
+	articleID, err := s.Queries.WithTx(tx).
+		InsertUsersArticle(ctx, models.InsertUsersArticleParams{
+			TaskID:      taskID,
+			Title:       title,
+			Source:      source,
+			Md5:         md5,
+			Content:     content,
+			Cuts:        cuts,
+			PublishedAt: tsz,
+		})
 	if err != nil {
 		return 0, handlePgxErr(err)
 	}
-	return aid, nil
+	if fn != nil {
+		if err = fn(ctx, taskID, articleID); err != nil {
+			return 0, err
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return 0, handlePgxErr(err)
+	}
+	return articleID, nil
 }
 
 // GetByID retrieves a user article by its ID.
-func (s UserArticles) GetByID(ctx context.Context, aID int32) (models.UsersArticle, error) {
-	article, err := s.db.GetUsersArticleByID(ctx, aID)
-	return article, handlePgxErr(err)
+func (s UserArticles) GetByID(ctx context.Context, aID int32) (*models.UsersArticle, error) {
+	article, err := s.Queries.GetUsersArticleByID(ctx, aID)
+	if err != nil {
+		return nil, handlePgxErr(err)
+	}
+	return &article, nil
 }
 
 // GetByTaskID retrieves a user article by its associated task ID.
-func (s UserArticles) GetByTaskID(ctx context.Context, taskID uuid.UUID) (models.UsersArticle, error) {
-	article, err := s.db.GetUsersArticleByTaskID(ctx, taskID)
-	return article, handlePgxErr(err)
+func (s UserArticles) GetByTaskID(ctx context.Context, taskID uuid.UUID) (*models.UsersArticle, error) {
+	article, err := s.Queries.GetUsersArticleByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, handlePgxErr(err)
+	}
+	return &article, nil
 }
 
 // GetByMD5 retrieves a user article by its MD5 hash.
-func (s UserArticles) GetByMD5(ctx context.Context, md5 string) (models.UsersArticle, error) {
-	article, err := s.db.GetUsersArticleByMD5(ctx, md5)
-	return article, handlePgxErr(err)
+func (s UserArticles) GetByMD5(ctx context.Context, md5 string) (*models.UsersArticle, error) {
+	article, err := s.Queries.GetUsersArticleByMD5(ctx, md5)
+	if err != nil {
+		return nil, handlePgxErr(err)
+	}
+	return &article, nil
 }
 
 func (s Storage) UserChunks() UserChunks {
-	return UserChunks{
-		db: s.Queries,
-	}
+	return UserChunks{s}
 }
 
 // UserChunks contains methods to manage user chunks in the database.
 type UserChunks struct {
-	db models.Querier
+	Storage
 }
 
 // Insert inserts a new user chunk into the database.
 func (s UserChunks) Insert(ctx context.Context, aID, start, offsetLeft, offsetRight, end int32) (int32, error) {
-	cID, err := s.db.InsertUsersChunk(ctx, models.InsertUsersChunkParams{
+	cID, err := s.Queries.InsertUsersChunk(ctx, models.InsertUsersChunkParams{
 		ArticleID:   aID,
 		Start:       start,
 		OffsetLeft:  offsetLeft,
@@ -129,7 +149,7 @@ func (s UserChunks) BatchInsert(ctx context.Context, aID int32, paragraphs []str
 	}
 
 	bErr := errors.NewBatchErr()
-	s.db.InsertUsersChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
+	s.Queries.InsertUsersChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
 		if err != nil {
 			bErr.Add(i, handlePgxErr(err))
 		} else if cID == 0 {
@@ -148,7 +168,7 @@ func (s UserChunks) BatchInsert(ctx context.Context, aID int32, paragraphs []str
 
 // ExtractByArticleID retrieves all chunks associated with a specific article ID.
 func (s UserChunks) ExtractByArticleID(ctx context.Context, aID int32) ([]string, error) {
-	rows, err := s.db.ExtractUsersChunks(ctx, aID)
+	rows, err := s.Queries.ExtractUsersChunks(ctx, aID)
 	if err != nil {
 		return nil, handlePgxErr(err)
 	}
@@ -200,7 +220,7 @@ func (s UserEmbeddings) Insert(ctx context.Context, aID, cID, mID int32, embeddi
 
 // Article provides methods to manage articles in the database.
 type Article struct {
-	DB models.Querier
+	Storage
 }
 
 // Insert inserts a new article into the database and returns the article ID.
@@ -213,7 +233,7 @@ func (a Article) Insert(ctx context.Context, url, title, source, md5, content st
 			WithDetails(fmt.Sprintf("time: %v", publishedAt.Format(time.DateTime))).
 			Warp(err)
 	}
-	aid, err := a.DB.InsertArticle(ctx, models.InsertArticleParams{
+	aid, err := a.Queries.InsertArticle(ctx, models.InsertArticleParams{
 		Title:       title,
 		Url:         url,
 		Source:      source,
@@ -227,19 +247,19 @@ func (a Article) Insert(ctx context.Context, url, title, source, md5, content st
 
 // GetByArticleID retrieves an article by its ID.
 func (a Article) GetByArticleID(ctx context.Context, aID int32) (models.Article, error) {
-	article, err := a.DB.GetArticleByID(ctx, aID)
+	article, err := a.Queries.GetArticleByID(ctx, aID)
 	return article, handlePgxErr(err)
 }
 
 // GetByTaskID retrieves an article by its associated task ID.
 func (a Article) GetByMD5(ctx context.Context, md5 string) (models.Article, error) {
-	article, err := a.DB.GetArticleByMD5(ctx, md5)
+	article, err := a.Queries.GetArticleByMD5(ctx, md5)
 	return article, handlePgxErr(err)
 }
 
 // GetByUrl retrieves an article by its URL.
 func (a Article) GetByUrl(ctx context.Context, url string) (models.Article, error) {
-	article, err := a.DB.GetArticleByURL(ctx, url)
+	article, err := a.Queries.GetArticleByURL(ctx, url)
 	return article, handlePgxErr(err)
 }
 
@@ -261,7 +281,7 @@ func (a Article) GetArticleWithinTimeInterval(ctx context.Context, start, end ti
 			Warp(err)
 	}
 
-	articles, err := a.DB.GetArticleWithinTimeInterval(ctx,
+	articles, err := a.Queries.GetArticleWithinTimeInterval(ctx,
 		models.GetArticleWithinTimeIntervalParams{
 			Start: aTsz,
 			End:   bTsz,
@@ -272,7 +292,7 @@ func (a Article) GetArticleWithinTimeInterval(ctx context.Context, start, end ti
 
 // GetByPublishedInPastKDays retrieves articles published in the past K days, limited to a specified number.
 func (a Article) GetByPublishedInPastKDays(ctx context.Context, k, limit int32) ([]models.Article, error) {
-	articles, err := a.DB.GetArticlesInPastKDays(ctx,
+	articles, err := a.Queries.GetArticlesInPastKDays(ctx,
 		models.GetArticlesInPastKDaysParams{
 			K:     k,
 			Limit: limit,
@@ -281,12 +301,12 @@ func (a Article) GetByPublishedInPastKDays(ctx context.Context, k, limit int32) 
 }
 
 type Chunck struct {
-	DB models.Querier
+	Storage
 }
 
 // Insert inserts a new chunk into the database and returns the chunk ID.
 func (c Chunck) Insert(ctx context.Context, aID, start, offsetLeft, offsetRight, end int32) (int32, error) {
-	cID, err := c.DB.InsertChunk(ctx, models.InsertChunkParams{
+	cID, err := c.Queries.InsertChunk(ctx, models.InsertChunkParams{
 		ArticleID:   aID,
 		Start:       start,
 		OffsetLeft:  offsetLeft,
@@ -318,7 +338,7 @@ func (c Chunck) BatchInsert(ctx context.Context, aID int32, paragraphs []string,
 	}
 
 	bErr := errors.NewBatchErr()
-	c.DB.InsertChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
+	c.Queries.InsertChunksBatch(ctx, params).QueryRow(func(i int, cID int32, err error) {
 		if err != nil {
 			bErr.Add(i, handlePgxErr(err))
 		} else if cID == 0 {
@@ -337,7 +357,7 @@ func (c Chunck) BatchInsert(ctx context.Context, aID int32, paragraphs []string,
 
 // ExtractByArticleID retrieves all chunks associated with a specific article ID.
 func (c Chunck) ExtractByArticleID(ctx context.Context, aID int32) ([]string, error) {
-	rows, err := c.DB.ExtractChunks(ctx, aID)
+	rows, err := c.Queries.ExtractChunks(ctx, aID)
 	if err != nil {
 		return nil, handlePgxErr(err)
 	}

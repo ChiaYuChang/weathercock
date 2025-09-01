@@ -185,9 +185,26 @@ func (cli *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm
 		return nil, err
 	}
 
+	if req.Schema != nil {
+		if config == nil {
+			config = &genai.GenerateContentConfig{}
+		}
+		config.ResponseJsonSchema = req.Schema.S
+	}
+
 	resp, err := cli.GenAI.Models.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.Schema != nil {
+		output, err := extractJSONObject(resp.Text())
+		if err == nil {
+			return &llm.GenerateResponse{
+				Outputs: []string{output},
+				Raw:     resp,
+			}, nil
+		}
 	}
 
 	return &llm.GenerateResponse{

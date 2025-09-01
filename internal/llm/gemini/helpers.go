@@ -3,6 +3,7 @@ package gemini
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"google.golang.org/genai"
@@ -61,4 +62,23 @@ func assertAs[T any](conf any) (T, error) {
 		return gConf, fmt.Errorf("%w: %T, should be %T", ErrInvalidConfigType, conf, gConf)
 	}
 	return gConf, nil
+}
+
+func extractJSONObject(s string) (string, error) {
+	start := strings.Index(s, "{")
+	if start == -1 {
+		return "", fmt.Errorf("could not find opening brace '{' in the string")
+	}
+
+	end := strings.LastIndex(s, "}")
+	if end == -1 {
+		return "", fmt.Errorf("could not find closing brace '}' in the string")
+	}
+
+	if end < start {
+		return "", fmt.Errorf("found closing brace '}' before opening brace '{'")
+	}
+
+	// Slice the string from the first '{' to the last '}'
+	return s[start : end+1], nil
 }

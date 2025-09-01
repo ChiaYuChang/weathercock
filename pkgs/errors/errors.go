@@ -84,6 +84,7 @@ var (
 	ErrDBTypeConversionError          = NewWithHTTPStatus(http.StatusInternalServerError, ECDatabaseTypeConversionError, "database type conversion error")
 	ErrNATSServerError                = NewWithHTTPStatus(http.StatusInternalServerError, ECNATSServerError, "NATS server error")
 	ErrNATSConnectionFailed           = NewWithHTTPStatus(http.StatusServiceUnavailable, ECNATSConnectionFailed, "NATS is not connected")
+	ErrNATSMsgPublishFailed           = NewWithHTTPStatus(http.StatusInternalServerError, ECNATSJsPublishFailed, "falied to publish message")
 )
 
 func NewWithHTTPStatus(httpSC, internalSC int, msg string, details ...string) *Error {

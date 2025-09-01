@@ -75,7 +75,7 @@ func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 	if resp.StatusCode != http.StatusOK {
 		err := errors.NewWithHTTPStatus(
 			resp.StatusCode,
-			resp.StatusCode,
+			errors.ECWebpageParsingError,
 			fmt.Sprintf("status: %s, failed to fetch Yahoo News article", resp.Status),
 			fmt.Sprintf("url: %s", resp.Request.URL.String()),
 		)
@@ -84,8 +84,8 @@ func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 	}
 
 	reader := resp.Body
+	var err error
 	if resp.Header.Get("Content-Encoding") == "gzip" {
-		var err error
 		reader, err = gzip.NewReader(resp.Body)
 		if err != nil {
 			err := errors.NewWithHTTPStatus(
@@ -94,8 +94,8 @@ func ParseYahooNewsResp(resp *http.Response) *YahooNewsParseResult {
 				"Failed to create gzip reader",
 				fmt.Sprintf("err: %s", err.Error()),
 				fmt.Sprintf("url: %s", resp.Request.URL.String()),
+				err.Error(),
 			)
-
 			return &YahooNewsParseResult{Error: err}
 		}
 	}
@@ -116,7 +116,8 @@ func ParseYahooNewsBody(r io.Reader) *YahooNewsParseResult {
 		err := errors.Wrap(err,
 			http.StatusInternalServerError,
 			errors.ECWebpageParsingError,
-			"Failed to construct goquery tree from HTML, please ensure the HTML is well-formed and valid",
+			"failed to construct goquery tree from HTML, please ensure the HTML is well-formed and valid",
+			err.Error(),
 		)
 		return &YahooNewsParseResult{
 			ParseTime: time.Since(tStr),

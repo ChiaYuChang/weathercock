@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
@@ -75,4 +76,22 @@ func toOptions(conf any) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: %T, expected %T", ErrInvalidOptionsType, conf, *new(map[string]any))
 	}
 	return options, nil
+}
+
+func extractJSONObject(s string) (string, error) {
+	start := strings.Index(s, "{")
+	if start == -1 {
+		return "", fmt.Errorf("could not find opening brace '{' in the string")
+	}
+
+	end := strings.LastIndex(s, "}")
+	if end == -1 {
+		return "", fmt.Errorf("could not find closing brace '}' in the string")
+	}
+
+	if end < start {
+		return "", fmt.Errorf("found closing brace '}' before opening brace '{'")
+	}
+
+	return s[start : end+1], nil
 }

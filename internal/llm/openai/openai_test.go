@@ -3,6 +3,7 @@ package openai_test
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,12 +12,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	openaiplug "github.com/ChiaYuChang/weathercock/internal/llm/openai"
+	"github.com/invopop/jsonschema"
 	"github.com/openai/openai-go/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -488,6 +492,149 @@ func TestOpenAIBatchRetrive(t *testing.T) {
 			}
 			require.Equal(t, retry, len(tc.BatchStatusFile)-1)
 		})
+	}
+}
+
+func TestOpenAIForamatOutput(t *testing.T) {
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		t.Skip("OPENAI_API_KEY not found, skip test")
+	}
+
+	embedDim := 1024
+	cli, err := openaiplug.OpenAI(context.Background(),
+		openaiplug.WithAPIKey(key),
+		openaiplug.WithMaxRetries(3),
+		openaiplug.WithTimeout(30*time.Second),
+		openaiplug.WithModel(
+			openaiplug.NewOpenAIModel(llm.ModelGenerate, openaiplug.DefaultGenModel),
+			openaiplug.NewOpenAIModel(llm.ModelEmbed, openaiplug.DefaultEmbedModel),
+		),
+		openaiplug.WithDefaultGenerate(openaiplug.DefaultGenModel),
+		openaiplug.WithDefaultEmbed(openaiplug.DefaultEmbedModel),
+		openaiplug.WithEmbedDim(embedDim),
+	)
+
+	if err != nil {
+		t.Skipf("could not connet to openai, skip test: %v", err)
+	}
+
+	require.NotNil(t, cli)
+
+	type Weather struct {
+		Index       int    `json:"index"`
+		City        string `json:"city"`
+		Weather     string `json:"weather"`
+		Temperature int    `json:"temperature"`
+		Humidity    int    `json:"humidity"`
+	}
+
+	type RespFormat struct {
+		N       int       `json:"n"`
+		Records []Weather `json:"records"`
+	}
+
+	data := []Weather{
+		{
+			City:        "Taipei",
+			Weather:     "Sunny",
+			Temperature: 25,
+			Humidity:    60,
+		},
+		{
+			City:        "London",
+			Weather:     "Cloudy",
+			Temperature: 15,
+			Humidity:    80,
+		},
+		{
+			City:        "New York",
+			Weather:     "Rainy",
+			Temperature: 10,
+			Humidity:    90,
+		},
+	}
+	for i := range data {
+		data[i].Index = i + 1
+	}
+
+	sb := &strings.Builder{}
+	w := csv.NewWriter(sb)
+	w.Write([]string{"Index", "City", "Weather", "Temperature", "Humidity"})
+	for _, d := range data {
+		err := w.Write([]string{
+			strconv.Itoa(d.Index),
+			d.City,
+			d.Weather,
+			strconv.Itoa(d.Temperature),
+			strconv.Itoa(d.Humidity)})
+		require.NoError(t, err)
+	}
+	w.Flush()
+
+	reflector := jsonschema.Reflector{
+		AllowAdditionalProperties: false,
+		DoNotReference:            true,
+	}
+
+	schema := reflector.Reflect(RespFormat{})
+	require.NotNil(t, schema)
+
+	prompt := []string{
+		"transform the following csv into json format",
+		"input: format:",
+		"city, weather, temperature, humidity",
+		"output format:",
+		"{",
+		" n: int // number of records",
+		" records: [",
+		"  {",
+		"   index: int,",
+		"   city: string,",
+		"   weather: string,",
+		"   temperature: int,",
+		"   humidity: int",
+		"  }",
+		" ]",
+		"}",
+	}
+
+	resp, err := cli.Generate(
+		context.Background(),
+		&llm.GenerateRequest{
+			Messages: []llm.Message{
+				{
+					Role:    llm.RoleSystem,
+					Content: prompt,
+				},
+				{
+					Role:    llm.RoleUser,
+					Content: []string{sb.String()},
+				},
+			},
+			ModelName: cli.DefaultModels[llm.ModelGenerate],
+			Schema: &llm.ResponseSchema{
+				Name:   "city_weather",
+				Strict: true,
+				S:      schema,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Outputs)
+
+	var result RespFormat
+	err = json.Unmarshal([]byte(resp.Outputs[0]), &result)
+	require.NoError(t, err)
+	require.Equal(t, len(data), result.N)
+	require.Len(t, result.Records, len(data))
+
+	sort.Slice(result.Records, func(i, j int) bool {
+		return result.Records[i].Index < result.Records[j].Index
+	})
+
+	for i, r := range result.Records {
+		require.Equal(t, data[i], r)
 	}
 }
 

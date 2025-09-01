@@ -41,7 +41,15 @@ type Message struct {
 type GenerateRequest struct {
 	Messages  []Message
 	ModelName string
+	Schema    *ResponseSchema
 	Config    any
+}
+
+type ResponseSchema struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	S           any    `json:"schema"`
+	Strict      bool   `json:"strict"`
 }
 
 func (req GenerateRequest) Endpoint() string {

@@ -20,6 +20,8 @@ const (
 	KeywordsExtracted = "article.keywords.extracted"
 	// embedding for the article has been created
 	EmbeddingCreated = "article.embedding.created"
+
+	TaskFailed = "task.failed"
 )
 
 // Publish while event needs to be performed
@@ -45,6 +47,7 @@ const (
 var (
 	ErrInvalidEmbedType = errors.New("invalid embed type, must be query or passage")
 	ErrInvalidLogLevel  = errors.New("invalid log level")
+	ErrMalformedMessage = errors.New("malformed message")
 )
 
 type EmbedType string
@@ -224,13 +227,20 @@ type MsgArticleScraped struct {
 
 type MsgKeywordsExtracted struct {
 	BaseMessageWithElapsed
-	ArticleID     int32 `json:"article_id"`
-	KeywordsCount int   `json:"keywords_count"`
+	ArticleID      int32 `json:"article_id"`
+	KeywordsCount  int   `json:"keywords_count"`
+	RelationsCount int   `json:"relations_count"`
 }
 
 type MsgEmbeddingCreated struct {
 	BaseMessageWithElapsed
 	ArticleID int32 `json:"article_id"`
+}
+
+type MsgTaskFailed struct {
+	BaseMessage
+	Error error  `json:"errors"`
+	Data  []byte `json:"data"`
 }
 
 type CmdScrapeArticle struct {

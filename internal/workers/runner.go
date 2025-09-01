@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	ec "github.com/ChiaYuChang/weathercock/pkgs/errors"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/nats-io/nats.go"
@@ -22,7 +24,10 @@ import (
 
 const (
 	NATSMaxWaitDuration       = 5 * time.Second
-	NATSMaxFetchRetryInterval = 120
+	NATSMaxFetchRetryInterval = 60 * time.Second
+	HealthCheckPort           = 8080
+	HealthCheckHost           = "localhost"
+	ShutdownWaitTime          = 5 * time.Second
 )
 
 // Runner manages the lifecycle of a worker, handling subscriptions, message fetching,
@@ -41,20 +46,19 @@ type Runner struct {
 func NewRunner(nc *nats.Conn, logger zerolog.Logger, tracer trace.Tracer, w Handler, opts ...Option) (*Runner, error) {
 	js, err := nc.JetStream()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create jetstream: %w", err)
 	}
 
 	r := &Runner{
-		nc:     nc,
 		js:     js,
 		logger: logger,
 		tracer: tracer,
 		worker: w,
 		options: Options{
 			Timeout:          30 * time.Second,
-			HealthCheckPort:  8080,
-			HealthCheckHost:  "",
-			ShutdownWaitTime: 5 * time.Second,
+			HealthCheckPort:  HealthCheckPort,
+			HealthCheckHost:  HealthCheckHost,
+			ShutdownWaitTime: ShutdownWaitTime,
 		},
 	}
 
@@ -124,13 +128,13 @@ func (r *Runner) Run(ctx context.Context) error {
 				if err == nats.ErrTimeout {
 					continue
 				}
-				wait := max(1<<retry, NATSMaxFetchRetryInterval)
+				wait := min(1<<retry*time.Second, NATSMaxFetchRetryInterval)
 				r.logger.Error().
 					Err(err).
 					Int("retry", retry).
-					Int("wait", wait).
+					Dur("wait", wait).
 					Msg("failed to fetch messages")
-				time.Sleep(time.Duration(wait) * time.Second)
+				time.Sleep(wait)
 				retry++
 				continue
 			}
@@ -157,14 +161,36 @@ func (r *Runner) processMessage(ctx context.Context, msg *nats.Msg) {
 	defer tCancel()
 
 	if err := r.worker.Handle(tCtx, msg); err != nil {
-		sSpan.RecordError(err)
-		sSpan.SetAttributes(attribute.Bool("success", false))
+		if errors.Is(err, ErrMalformedMessage) {
+			failedMsg := MsgTaskFailed{
+				BaseMessage: BaseMessage{
+					TaskID:   uuid.New(),
+					EventAt:  time.Now().Unix(),
+					Version:  MessageVersion,
+					CacheKey: "",
+				},
+				Error: err,
+				Data:  msg.Data,
+			}
 
-		r.logger.Error().Err(err).
-			Msg("worker handler failed, sending NAK")
-		if nakErr := msg.NakWithDelay(10 * time.Second); nakErr != nil {
-			r.logger.Error().Err(nakErr).
-				Msg("failed to send NAK")
+			failedData, _ := json.Marshal(failedMsg)
+			_, _ = r.js.PublishMsg(&nats.Msg{
+				Subject: TaskFailed,
+				Header:  msg.Header,
+				Data:    failedData,
+			})
+
+			sSpan.RecordError(err)
+			sSpan.SetAttributes(attribute.Bool("success", false))
+			r.logger.Error().Err(err).Msg("failed to parse message")
+			if ackErr := msg.Ack(); ackErr != nil {
+				r.logger.Error().Err(ackErr).Msg("failed to send ACK")
+			}
+		} else {
+			r.logger.Error().Err(err).Msg("worker handler failed, sending NAK")
+			if nakErr := msg.NakWithDelay(10 * time.Second); nakErr != nil {
+				r.logger.Error().Err(nakErr).Msg("failed to send NAK")
+			}
 		}
 		return
 	}
@@ -237,11 +263,4 @@ func (r *Runner) defaultReadyCheck(w http.ResponseWriter, req *http.Request) {
 
 	w.WriteHeader(ec.Success.HttpStatusCode)
 	_ = ec.Success.MarshalAndWriteTo(w)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

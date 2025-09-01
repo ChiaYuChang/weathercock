@@ -2,17 +2,20 @@ package ollama_test
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/ChiaYuChang/weathercock/internal/llm"
 	"github.com/ChiaYuChang/weathercock/internal/llm/ollama"
+	"github.com/invopop/jsonschema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -426,5 +429,142 @@ func TestOllamaEmbed(t *testing.T) {
 			require.NotNil(t, resp)
 			tc.testRespFunc(t, resp)
 		})
+	}
+}
+
+func TestOllamaForamatOutput(t *testing.T) {
+	cli, err := ollama.Ollama(
+		context.Background(),
+		ollama.WithHost(OllamaURL()),
+		ollama.WithModel(
+			ollama.NewOllamaModel(llm.ModelGenerate, "gpt-oss:20b"),
+			ollama.NewOllamaModel(llm.ModelEmbed, EmbedModel),
+		),
+		ollama.WithDefaultGenerate("gpt-oss:20b"),
+		ollama.WithDefaultEmbed(EmbedModel),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, cli)
+
+	if err != nil {
+		t.Skipf("could not connet to openai, skip test: %v", err)
+	}
+
+	require.NotNil(t, cli)
+
+	type Weather struct {
+		Index       int    `json:"index"`
+		City        string `json:"city"`
+		Weather     string `json:"weather"`
+		Temperature int    `json:"temperature"`
+		Humidity    int    `json:"humidity"`
+	}
+
+	type RespFormat struct {
+		N       int       `json:"n"`
+		Records []Weather `json:"records"`
+	}
+
+	data := []Weather{
+		{
+			City:        "Taipei",
+			Weather:     "Sunny",
+			Temperature: 25,
+			Humidity:    60,
+		},
+		{
+			City:        "London",
+			Weather:     "Cloudy",
+			Temperature: 15,
+			Humidity:    80,
+		},
+		{
+			City:        "New York",
+			Weather:     "Rainy",
+			Temperature: 10,
+			Humidity:    90,
+		},
+	}
+	for i := range data {
+		data[i].Index = i + 1
+	}
+
+	sb := &strings.Builder{}
+	w := csv.NewWriter(sb)
+	w.Write([]string{"Index", "City", "Weather", "Temperature", "Humidity"})
+	for _, d := range data {
+		err := w.Write([]string{
+			strconv.Itoa(d.Index),
+			d.City,
+			d.Weather,
+			strconv.Itoa(d.Temperature),
+			strconv.Itoa(d.Humidity)})
+		require.NoError(t, err)
+	}
+	w.Flush()
+
+	reflector := jsonschema.Reflector{
+		AllowAdditionalProperties: false,
+		DoNotReference:            true,
+	}
+
+	schema := reflector.Reflect(RespFormat{})
+	require.NotNil(t, schema)
+
+	prompt := []string{
+		"transform the following csv into json format",
+		"input: format:",
+		"city, weather, temperature, humidity",
+		"output format:",
+		"{",
+		" n: int // number of records",
+		" records: [",
+		"  {",
+		"   index: int,",
+		"   city: string,",
+		"   weather: string,",
+		"   temperature: int,",
+		"   humidity: int",
+		"  }",
+		" ]",
+		"}",
+	}
+
+	resp, err := cli.Generate(
+		context.Background(),
+		&llm.GenerateRequest{
+			Messages: []llm.Message{
+				{
+					Role:    llm.RoleSystem,
+					Content: prompt,
+				},
+				{
+					Role:    llm.RoleUser,
+					Content: []string{sb.String()},
+				},
+			},
+			ModelName: cli.DefaultModels[llm.ModelGenerate],
+			Schema: &llm.ResponseSchema{
+				Name:   "city_weather",
+				Strict: true,
+				S:      schema,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Outputs)
+
+	var result RespFormat
+	err = json.Unmarshal([]byte(resp.Outputs[0]), &result)
+	require.NoError(t, err)
+	require.Equal(t, len(data), result.N)
+	require.Len(t, result.Records, len(data))
+
+	sort.Slice(result.Records, func(i, j int) bool {
+		return result.Records[i].Index < result.Records[j].Index
+	})
+
+	for i, r := range result.Records {
+		require.Equal(t, data[i], r)
 	}
 }

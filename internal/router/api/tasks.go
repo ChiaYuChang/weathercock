@@ -69,7 +69,7 @@ func (t UserTasks) InsertFromText(r *http.Request) (taskID uuid.UUID, err error)
 			return fmt.Errorf("failed to marshal scrape task payload: %w", err)
 		}
 
-		_, err = t.Publisher.Js.Publish(workers.TaskScrape, payload)
+		err = t.Publisher.PublishNATSMessage(ctx, workers.TaskScrape, payload)
 		if err != nil {
 			return fmt.Errorf("failed to publish scrape task: %w", err)
 		}
@@ -136,17 +136,14 @@ func (t UserTasks) InsertFromURL(r *http.Request) (taskID uuid.UUID, err error) 
 	defer cancel()
 	taskID, err = t.Storage.Task().InsertFromText(ctx, text, func(ctx context.Context, taskID uuid.UUID) error {
 		if len(title) == 0 {
-			payload, err := json.Marshal(workers.CmdGenerateTitle{
-				BaseMessage: workers.BaseMessage{
-					TaskID: taskID,
-				},
-				Content: text,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to marshal generate title task payload: %w", err)
-			}
-
-			_, err = t.Publisher.Js.Publish(workers.TaskGenerateTitle, payload)
+			err = t.Publisher.PublishNATSMessage(ctx,
+				workers.TaskGenerateTitle,
+				workers.CmdGenerateTitle{
+					BaseMessage: workers.BaseMessage{
+						TaskID: taskID,
+					},
+					Content: text,
+				})
 			if err != nil {
 				return fmt.Errorf("failed to publish generate title task: %w", err)
 			}

@@ -183,6 +183,13 @@ func (c *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.G
 		return nil, err
 	}
 
+	if req.Schema != nil {
+		if len(opts) == 0 {
+			opts = map[string]any{}
+		}
+		opts["schema"] = req.Schema.S
+	}
+
 	isStreaming := false
 	var apiResp api.ChatResponse
 	if err := c.OllamaAPI.Chat(ctx, &api.ChatRequest{
@@ -199,6 +206,16 @@ func (c *Client) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.G
 
 	if !apiResp.Done {
 		return nil, ErrIncompleteResponse
+	}
+
+	if req.Schema != nil {
+		output, err := extractJSONObject(apiResp.Message.Content)
+		if err == nil {
+			return &llm.GenerateResponse{
+				Outputs: []string{output},
+				Raw:     apiResp,
+			}, nil
+		}
 	}
 
 	return &llm.GenerateResponse{
